@@ -1,0 +1,67 @@
+<!doctype html>
+<html>
+
+<head>
+  <meta charset="utf-8" />
+  <title>SolarSim WASM</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    html,
+    body {
+      height: 100%;
+      margin: 0;
+      background: #020212;
+    }
+
+    #canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+    }
+
+    #overlay {
+      position: absolute;
+      left: 8px;
+      top: 8px;
+      color: #eee;
+      font-family: monospace;
+    }
+  </style>
+</head>
+
+<body>
+  <canvas id="canvas"></canvas>
+  <div id="overlay">SolarSim - Drag to orbit, scroll to zoom</div>
+  <script>
+    const canvas = document.getElementById('canvas');
+
+    function resizeCanvas() {
+      const dpr = window.devicePixelRatio || 1;
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+
+      // Check if the canvas size really needs to be updated
+      if (canvas.width !== width * dpr || canvas.height !== height * dpr) {
+        canvas.width = width * dpr;
+        canvas.height = height * dpr;
+        canvas.style.width = width + "px";
+        canvas.style.height = height + "px";
+
+        if (window.Module && Module._emscripten_set_canvas_size) { // handles resizes AFTER the app has started
+          Module._emscripten_set_canvas_size(canvas.width, canvas.height);
+        }
+      }
+    }
+    resizeCanvas();
+
+    window.addEventListener('resize', resizeCanvas);
+    var Module = {
+      canvas: canvas,
+    };
+
+    window.setTimeout(resizeCanvas, 500); //TODO: temp fix
+  </script>
+  <script src="heliosim.js"></script>
+</body>
+
+</html>

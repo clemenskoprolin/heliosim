@@ -4,8 +4,6 @@
 /out/
 /tmp/
 /*.wasm
-/*.js
-/*.html
 
 # Object & intermediate files
 *.o
