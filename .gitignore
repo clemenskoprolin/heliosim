@@ -1,0 +1,43 @@
+# Build artifacts
+/build/
+/dist/
+/out/
+/tmp/
+/*.wasm
+/*.js
+/*.html
+
+# Object & intermediate files
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dll
+*.dylib
+
+# Backup & temporary files
+*~
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Python http.server cache
+__pycache__/
+
+# VSCode / Editor settings
+.vscode/
+.idea/
+
+# External dependencies
+external/glm/.git
+external/glm/test/
+external/glm/doc/
+external/glm/util/
+external/glm/cmake/
+external/glm/benchmarks/
+external/glm/glm/detail/dummy.cpp
