@@ -24,12 +24,179 @@ const double DISTANCE_SCALE = 1e10;
 const double MASS_SCALE = 1e20;
 const double TIME_SCALE = 60*60*24; // 1 sec -> 1 day
 
-const int SPHERE_LAT = 16;
-const int SPHERE_LONG = 16;
+const int SPHERE_LAT = 32;
+const int SPHERE_LONG = 32;
+const int SUN_SPHERE_LAT = 48;
+const int SUN_SPHERE_LONG = 48;
 
 float fov = 80.0f;
 
 // ---------- Embedded shaders (GLSL ES 3.00) ----------
+
+// --- Starfield shaders ---
+const char *starVertexShaderSrc = R"glsl(#version 300 es
+precision highp float;
+layout(location = 0) in vec3 aPos;
+layout(location = 1) in float aBrightness;
+layout(location = 2) in float aSize;
+
+uniform mat4 uView;
+uniform mat4 uProj;
+
+out float vBrightness;
+
+void main() {
+    vBrightness = aBrightness;
+    gl_Position = uProj * uView * vec4(aPos, 1.0);
+    gl_PointSize = aSize;
+}
+)glsl";
+
+const char *starFragmentShaderSrc = R"glsl(#version 300 es
+precision highp float;
+in float vBrightness;
+out vec4 FragColor;
+
+void main() {
+    // Soft circular point
+    vec2 pc = gl_PointCoord * 2.0 - 1.0;
+    float d = dot(pc, pc);
+    if (d > 1.0) discard;
+    float alpha = vBrightness * (1.0 - d * d);
+    // Slight blue-white tint
+    vec3 color = mix(vec3(0.8, 0.85, 1.0), vec3(1.0, 0.95, 0.8), vBrightness);
+    FragColor = vec4(color * alpha, alpha);
+}
+)glsl";
+
+// --- Sun surface shader (procedural fiery surface) ---
+const char *sunVertexShaderSrc = R"glsl(#version 300 es
+precision highp float;
+layout(location = 0) in vec3 aPos;
+layout(location = 1) in vec3 aNormal;
+
+uniform mat4 uModel;
+uniform mat4 uView;
+uniform mat4 uProj;
+
+out vec3 vNormal;
+out vec3 vObjPos;
+
+void main() {
+    vObjPos = aPos;
+    vNormal = aNormal;
+    gl_Position = uProj * uView * uModel * vec4(aPos, 1.0);
+}
+)glsl";
+
+const char *sunFragmentShaderSrc = R"glsl(#version 300 es
+precision highp float;
+in vec3 vNormal;
+in vec3 vObjPos;
+out vec4 FragColor;
+
+uniform float uTime;
+
+// Simplex-like hash noise
+vec3 hash3(vec3 p) {
+    p = vec3(dot(p, vec3(127.1, 311.7, 74.7)),
+             dot(p, vec3(269.5, 183.3, 246.1)),
+             dot(p, vec3(113.5, 271.9, 124.6)));
+    return -1.0 + 2.0 * fract(sin(p) * 43758.5453123);
+}
+
+float noise3d(vec3 p) {
+    vec3 i = floor(p);
+    vec3 f = fract(p);
+    vec3 u = f * f * (3.0 - 2.0 * f);
+    return mix(mix(mix(dot(hash3(i + vec3(0,0,0)), f - vec3(0,0,0)),
+                       dot(hash3(i + vec3(1,0,0)), f - vec3(1,0,0)), u.x),
+                   mix(dot(hash3(i + vec3(0,1,0)), f - vec3(0,1,0)),
+                       dot(hash3(i + vec3(1,1,0)), f - vec3(1,1,0)), u.x), u.y),
+               mix(mix(dot(hash3(i + vec3(0,0,1)), f - vec3(0,0,1)),
+                       dot(hash3(i + vec3(1,0,1)), f - vec3(1,0,1)), u.x),
+                   mix(dot(hash3(i + vec3(0,1,1)), f - vec3(0,1,1)),
+                       dot(hash3(i + vec3(1,1,1)), f - vec3(1,1,1)), u.x), u.y), u.z);
+}
+
+float fbm(vec3 p) {
+    float v = 0.0;
+    float a = 0.5;
+    for (int i = 0; i < 5; i++) {
+        v += a * noise3d(p);
+        p *= 2.0;
+        a *= 0.5;
+    }
+    return v;
+}
+
+void main() {
+    vec3 p = vObjPos * 3.0 + vec3(0.0, 0.0, uTime * 0.15);
+    float n = fbm(p) * 0.5 + 0.5;
+    float n2 = fbm(p * 2.0 + vec3(uTime * 0.1)) * 0.5 + 0.5;
+
+    // Hot core colors: white -> yellow -> orange -> red
+    vec3 col1 = vec3(1.0, 0.95, 0.8);   // white-yellow (hottest)
+    vec3 col2 = vec3(1.0, 0.7, 0.2);    // orange
+    vec3 col3 = vec3(1.0, 0.3, 0.05);   // deep orange-red
+
+    float t = n * n2;
+    vec3 col = mix(col3, col2, smoothstep(0.2, 0.5, t));
+    col = mix(col, col1, smoothstep(0.5, 0.85, t));
+
+    // Limb darkening
+    float rim = 1.0 - max(dot(normalize(vNormal), normalize(vObjPos + vec3(0.0, 0.0, 1.0))), 0.0);
+    col *= mix(1.0, 0.5, rim * rim);
+
+    // Make it bright (HDR feel)
+    col *= 1.3;
+
+    FragColor = vec4(col, 1.0);
+}
+)glsl";
+
+// --- Sun glow billboard shader ---
+const char *glowVertexShaderSrc = R"glsl(#version 300 es
+precision highp float;
+layout(location = 0) in vec2 aPos;
+
+uniform mat4 uView;
+uniform mat4 uProj;
+uniform vec3 uCenter;
+uniform float uSize;
+
+out vec2 vUV;
+
+void main() {
+    vUV = aPos; // -1..1
+    // Billboard: extract camera right & up from view matrix
+    vec3 right = vec3(uView[0][0], uView[1][0], uView[2][0]);
+    vec3 up    = vec3(uView[0][1], uView[1][1], uView[2][1]);
+    vec3 worldPos = uCenter + right * aPos.x * uSize + up * aPos.y * uSize;
+    gl_Position = uProj * uView * vec4(worldPos, 1.0);
+}
+)glsl";
+
+const char *glowFragmentShaderSrc = R"glsl(#version 300 es
+precision highp float;
+in vec2 vUV;
+out vec4 FragColor;
+
+uniform vec3 uColor;
+
+void main() {
+    float d = length(vUV);
+    // Multi-layered glow
+    float glow = 0.0;
+    glow += 0.6 * exp(-d * 2.5);       // wide outer glow
+    glow += 0.4 * exp(-d * 6.0);       // medium glow
+    glow += 0.3 * exp(-d * 15.0);      // tight inner glow
+    glow = clamp(glow, 0.0, 1.0);
+    FragColor = vec4(uColor * glow, glow);
+}
+)glsl";
+
+// --- Planet shader ---
 const char *vertexShaderSrc = R"glsl(#version 300 es
 precision highp float;
 layout(location = 0) in vec3 aPos;
@@ -164,7 +331,185 @@ struct Mesh {
         glDrawElements(GL_TRIANGLES, (GLsizei)idx.size(), GL_UNSIGNED_INT, nullptr);
         glBindVertexArray(0);
     }
-} sphereMesh;
+} sphereMesh, sunMesh;
+
+// ---------- Starfield ----------
+const int NUM_STARS = 8000;
+const int NUM_MILKYWAY_EXTRA = 4000; // extra dense milky way band stars
+GLuint starVAO = 0, starVBO = 0;
+GLuint gStarProg = 0;
+GLint locStarView, locStarProj;
+
+void buildStarfield() {
+    // 5 floats per star: x,y,z, brightness, size
+    std::vector<float> data;
+    data.reserve((NUM_STARS + NUM_MILKYWAY_EXTRA) * 5);
+
+    // Galactic plane tilt: 60 degrees around X axis
+    // This makes the milky way band sweep diagonally across the sky
+    const float galTilt = glm::radians(60.0f);
+    const float cosT = cos(galTilt), sinT = sin(galTilt);
+    // Returns distance from the tilted galactic plane for a given (x,y,z) direction
+    auto galacticDist = [&](float x, float y, float z) -> float {
+        // Rotate point by -tilt around X, then measure y component
+        float ry = y * cosT + z * sinT;
+        float len = sqrt(x*x + y*y + z*z);
+        if (len < 0.001f) return 1.0f;
+        return ry / len; // normalized distance from plane (-1..1)
+    };
+
+    // Simple LCG random for deterministic starfield
+    unsigned int seed = 42u;
+    auto rng = [&seed]() -> float {
+        seed = seed * 1103515245u + 12345u;
+        return (float)((seed >> 16) & 0x7FFF) / 32767.0f;
+    };
+
+    for (int i = 0; i < NUM_STARS; i++) {
+        // Random direction on sphere
+        float u = rng() * 2.0f - 1.0f;
+        float theta = rng() * glm::two_pi<float>();
+        float r2 = sqrt(1.0f - u * u);
+
+        float x = r2 * cos(theta);
+        float y = u;
+        float z = r2 * sin(theta);
+
+        // Place at large distance
+        float dist = 400.0f + rng() * 100.0f;
+        x *= dist; y *= dist; z *= dist;
+
+        // Milky way band: denser and brighter near tilted galactic plane
+        float gd = galacticDist(x, y, z);
+        float galacticFactor = exp(-(gd * gd) / 0.02f);
+        float brightness = rng() * 0.3f + 0.1f;
+        brightness += galacticFactor * 0.5f * rng();
+        brightness = std::min(brightness, 1.0f);
+
+        float size = 1.0f + rng() * 2.0f;
+        // Milky way stars can be slightly larger
+        if (galacticFactor > 0.5f) size += rng() * 1.5f;
+
+        data.push_back(x);
+        data.push_back(y);
+        data.push_back(z);
+        data.push_back(brightness);
+        data.push_back(size);
+    }
+
+    // Extra milky way band stars - concentrated along tilted galactic plane
+    for (int i = 0; i < NUM_MILKYWAY_EXTRA; i++) {
+        float lon = rng() * glm::two_pi<float>();
+        // Gaussian-ish distribution in latitude, tight around galactic plane
+        float lat = (rng() + rng() + rng()) / 3.0f * 2.0f - 1.0f; // central limit
+        lat *= 0.15f; // narrow band
+
+        float dist = 400.0f + rng() * 100.0f;
+        float cosLat = cos(lat);
+        float x = cosLat * cos(lon) * dist;
+        float y = sin(lat) * dist;
+        float z = cosLat * sin(lon) * dist;
+
+        // Rotate by galactic tilt around X axis
+        float ry = y * cosT - z * sinT;
+        float rz = y * sinT + z * cosT;
+        y = ry;
+        z = rz;
+
+        float brightness = 0.15f + rng() * 0.5f;
+        float size = 0.8f + rng() * 1.5f;
+
+        // Some brighter clumps
+        if (rng() > 0.85f) {
+            brightness = 0.6f + rng() * 0.4f;
+            size += 1.0f;
+        }
+
+        data.push_back(x);
+        data.push_back(y);
+        data.push_back(z);
+        data.push_back(std::min(brightness, 1.0f));
+        data.push_back(size);
+    }
+
+    glGenVertexArrays(1, &starVAO);
+    glGenBuffers(1, &starVBO);
+    glBindVertexArray(starVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, starVBO);
+    glBufferData(GL_ARRAY_BUFFER, data.size() * sizeof(float), data.data(), GL_STATIC_DRAW);
+    // position
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), 0);
+    glEnableVertexAttribArray(0);
+    // brightness
+    glVertexAttribPointer(1, 1, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
+    glEnableVertexAttribArray(1);
+    // size
+    glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(4 * sizeof(float)));
+    glEnableVertexAttribArray(2);
+    glBindVertexArray(0);
+}
+
+void drawStars(const glm::mat4 &view, const glm::mat4 &proj) {
+    glUseProgram(gStarProg);
+    // Recenter the star skybox on the camera so it never moves
+    glm::mat4 skyView = glm::mat4(glm::mat3(view)); // strip translation
+    glUniformMatrix4fv(locStarView, 1, GL_FALSE, glm::value_ptr(skyView));
+    glUniformMatrix4fv(locStarProj, 1, GL_FALSE, glm::value_ptr(proj));
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE); // additive for stars
+    glDepthMask(GL_FALSE); // don't write to depth
+    glBindVertexArray(starVAO);
+    glDrawArrays(GL_POINTS, 0, NUM_STARS + NUM_MILKYWAY_EXTRA);
+    glBindVertexArray(0);
+    glDepthMask(GL_TRUE);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+}
+
+// ---------- Sun glow billboard ----------
+GLuint glowVAO = 0, glowVBO = 0;
+GLuint gGlowProg = 0;
+GLint locGlowView, locGlowProj, locGlowCenter, locGlowSize, locGlowColor;
+
+void buildGlowQuad() {
+    float quad[] = {
+        -1.0f, -1.0f,
+         1.0f, -1.0f,
+        -1.0f,  1.0f,
+         1.0f, -1.0f,
+         1.0f,  1.0f,
+        -1.0f,  1.0f,
+    };
+    glGenVertexArrays(1, &glowVAO);
+    glGenBuffers(1, &glowVBO);
+    glBindVertexArray(glowVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, glowVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(quad), quad, GL_STATIC_DRAW);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), 0);
+    glEnableVertexAttribArray(0);
+    glBindVertexArray(0);
+}
+
+void drawSunGlow(const glm::mat4 &view, const glm::mat4 &proj, const glm::vec3 &sunPos, float size) {
+    glUseProgram(gGlowProg);
+    glUniformMatrix4fv(locGlowView, 1, GL_FALSE, glm::value_ptr(view));
+    glUniformMatrix4fv(locGlowProj, 1, GL_FALSE, glm::value_ptr(proj));
+    glUniform3fv(locGlowCenter, 1, glm::value_ptr(sunPos));
+    glUniform1f(locGlowSize, size);
+    glUniform3f(locGlowColor, 1.0f, 0.85f, 0.4f);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE); // additive glow
+    glDepthMask(GL_FALSE);
+    glBindVertexArray(glowVAO);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    glBindVertexArray(0);
+    glDepthMask(GL_TRUE);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+}
+
+// ---------- Sun shader program ----------
+GLuint gSunProg = 0;
+GLint locSunM, locSunV, locSunP, locSunTime;
+float gTime = 0.0f;
 
 // ---------- Physics bodies ----------
 const int ORBIT_TRAIL_MAX = 2048;  // max trail points per body
@@ -420,7 +765,7 @@ double lastX=SCR_W_DEFAULT/2.0, lastY=SCR_H_DEFAULT/2.0;
 bool leftDown=false;
 bool touchMode=false;
 double touchLastX=0, touchLastY=0; // separate tracking for touch input
-float yaw=-90.0f, pitch=0.0f;
+float yaw=-90.0f, pitch=30.0f;
 float distanceCam = 20.0f;
 glm::vec3 camTarget = {0.0f,0.0f,0.0f};
 
@@ -622,8 +967,11 @@ void main_loop() {
 
     // render
     glViewport(0, 0, width, height);
-    glClearColor(0.02f,0.02f,0.04f,1.0f);
+    glClearColor(0.01f,0.01f,0.02f,1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    // Update time for sun shader
+    gTime += (float)elapsed_seconds;
 
     // Enable blending for transparent orbit trails
     glEnable(GL_BLEND);
@@ -639,6 +987,9 @@ void main_loop() {
     glm::mat4 view = glm::lookAt(camPos, camTarget, glm::vec3(0,1,0));
     glm::mat4 proj = glm::perspective(glm::radians(fov), (float)width / (float)height, 0.1f, 1000.0f);
 
+    // Draw starfield background first
+    drawStars(view, proj);
+
     // upload common uniforms
     glUseProgram(gOrbitProg);
     glUniformMatrix4fv(locOrbitV, 1, GL_FALSE, glm::value_ptr(view));
@@ -647,21 +998,39 @@ void main_loop() {
     glUseProgram(gProg);
     glUniformMatrix4fv(locV, 1, GL_FALSE, glm::value_ptr(view));
     glUniformMatrix4fv(locP, 1, GL_FALSE, glm::value_ptr(proj));
-    glUniform3f(locLight, camPos.x, camPos.y, camPos.z);
+    glUniform3f(locLight, 0.0f, 0.0f, 0.0f);  // Light from the Sun at origin
 
     for(auto &b : bodies){
         drawBodyTrail(b);
 
         glDisable(GL_BLEND); // solid bodies
-        glUseProgram(gProg);
 
-        glm::mat4 model(1.0f);
-        model = glm::translate(model, glm::vec3((float)b.pos.x, (float)b.pos.y, (float)b.pos.z));
-        float visualScale = std::max(0.05f, (float)(b.radius * 1.0f));
-        model = glm::scale(model, glm::vec3(visualScale));
-        glUniformMatrix4fv(locM, 1, GL_FALSE, glm::value_ptr(model));
-        glUniform3fv(locColor, 1, glm::value_ptr(b.color));
-        sphereMesh.draw();
+        if (b.isStar) {
+            // Draw sun with special shader
+            glUseProgram(gSunProg);
+            glm::mat4 model(1.0f);
+            model = glm::translate(model, glm::vec3((float)b.pos.x, (float)b.pos.y, (float)b.pos.z));
+            float visualScale = std::max(0.05f, (float)(b.radius * 1.0f));
+            model = glm::scale(model, glm::vec3(visualScale));
+            glUniformMatrix4fv(locSunM, 1, GL_FALSE, glm::value_ptr(model));
+            glUniformMatrix4fv(locSunV, 1, GL_FALSE, glm::value_ptr(view));
+            glUniformMatrix4fv(locSunP, 1, GL_FALSE, glm::value_ptr(proj));
+            glUniform1f(locSunTime, gTime);
+            sunMesh.draw();
+
+            // Draw glow billboard
+            glm::vec3 sp((float)b.pos.x, (float)b.pos.y, (float)b.pos.z);
+            drawSunGlow(view, proj, sp, visualScale * 5.0f);
+        } else {
+            glUseProgram(gProg);
+            glm::mat4 model(1.0f);
+            model = glm::translate(model, glm::vec3((float)b.pos.x, (float)b.pos.y, (float)b.pos.z));
+            float visualScale = std::max(0.05f, (float)(b.radius * 1.0f));
+            model = glm::scale(model, glm::vec3(visualScale));
+            glUniformMatrix4fv(locM, 1, GL_FALSE, glm::value_ptr(model));
+            glUniform3fv(locColor, 1, glm::value_ptr(b.color));
+            sphereMesh.draw();
+        }
 
         glEnable(GL_BLEND); // re-enable for next body's trail
     }
@@ -741,6 +1110,8 @@ int main() {
 
     // Mesh + program
     sphereMesh.build(SPHERE_LAT, SPHERE_LONG);
+    sunMesh.build(SUN_SPHERE_LAT, SUN_SPHERE_LONG);
+
     gProg = makeProgram(vertexShaderSrc, fragmentShaderSrc);
     locM = glGetUniformLocation(gProg, "uModel");
     locV = glGetUniformLocation(gProg, "uView");
@@ -753,6 +1124,30 @@ int main() {
     locOrbitV = glGetUniformLocation(gOrbitProg, "uView");
     locOrbitP = glGetUniformLocation(gOrbitProg, "uProj");
     locOrbitColor = glGetUniformLocation(gOrbitProg, "uColor");
+
+    // Star shader
+    gStarProg = makeProgram(starVertexShaderSrc, starFragmentShaderSrc);
+    locStarView = glGetUniformLocation(gStarProg, "uView");
+    locStarProj = glGetUniformLocation(gStarProg, "uProj");
+
+    // Sun shader
+    gSunProg = makeProgram(sunVertexShaderSrc, sunFragmentShaderSrc);
+    locSunM = glGetUniformLocation(gSunProg, "uModel");
+    locSunV = glGetUniformLocation(gSunProg, "uView");
+    locSunP = glGetUniformLocation(gSunProg, "uProj");
+    locSunTime = glGetUniformLocation(gSunProg, "uTime");
+
+    // Glow shader
+    gGlowProg = makeProgram(glowVertexShaderSrc, glowFragmentShaderSrc);
+    locGlowView = glGetUniformLocation(gGlowProg, "uView");
+    locGlowProj = glGetUniformLocation(gGlowProg, "uProj");
+    locGlowCenter = glGetUniformLocation(gGlowProg, "uCenter");
+    locGlowSize = glGetUniformLocation(gGlowProg, "uSize");
+    locGlowColor = glGetUniformLocation(gGlowProg, "uColor");
+
+    // Build starfield and glow quad
+    buildStarfield();
+    buildGlowQuad();
 
     // callbacks
     glfwSetCursorPosCallback(gWindow, cursorPosCB);
