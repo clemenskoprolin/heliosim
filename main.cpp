@@ -75,24 +75,29 @@ void main() {
 const char *orbitVertexShaderSrc = R"glsl(#version 300 es
 precision highp float;
 layout(location = 0) in vec3 aPos;
+layout(location = 1) in float aAlpha;
 
 uniform mat4 uModel;
 uniform mat4 uView;
 uniform mat4 uProj;
 
+out float vAlpha;
+
 void main() {
+    vAlpha = aAlpha;
     gl_Position = uProj * uView * uModel * vec4(aPos, 1.0);
 }
 )glsl";
 
 const char *orbitFragmentShaderSrc = R"glsl(#version 300 es
 precision highp float;
+in float vAlpha;
 out vec4 FragColor;
 
 uniform vec3 uColor;
 
 void main() {
-    FragColor = vec4(uColor, 1.0);
+    FragColor = vec4(uColor, vAlpha);
 }
 )glsl";
 
@@ -162,6 +167,12 @@ struct Mesh {
 } sphereMesh;
 
 // ---------- Physics bodies ----------
+const int ORBIT_TRAIL_MAX = 2048;  // max trail points per body
+const int ORBIT_TRAIL_RECORD_INTERVAL = 3; // record every N frames
+const int FUTURE_TRAIL_POINTS = 512; // number of predicted future positions
+const int FUTURE_PREDICT_INTERVAL = 60; // re-predict every N frames
+const double FUTURE_STEP_DT = TIME_SCALE * 2.0; // simulate ~2 days per step (~2.8 yr total)
+
 struct Body {
     std::string name;
     double mass;
@@ -169,8 +180,105 @@ struct Body {
     glm::dvec3 vel;
     float radius;
     glm::vec3 color;
+    bool isStar = false; // stars don't get orbit trails
+
+    // orbit trail - stored as interleaved (x, y, z, alpha) per vertex
+    std::vector<float> trailData; // interleaved: x,y,z,alpha
+    std::vector<glm::vec3> trailPositions; // raw positions for ring buffer
+    GLuint trailVAO = 0, trailVBO = 0;
+    bool trailDirty = false;
+
+    void recordTrailPoint() {
+        glm::vec3 p((float)pos.x, (float)pos.y, (float)pos.z);
+        if (trailPositions.size() >= (size_t)ORBIT_TRAIL_MAX) {
+            trailPositions.erase(trailPositions.begin());
+        }
+        trailPositions.push_back(p);
+        trailDirty = true;
+    }
+
+    void uploadTrail() {
+        if (!trailDirty || trailPositions.size() < 2) return;
+        if (trailVAO == 0) {
+            glGenVertexArrays(1, &trailVAO);
+            glGenBuffers(1, &trailVBO);
+            glBindVertexArray(trailVAO);
+            glBindBuffer(GL_ARRAY_BUFFER, trailVBO);
+            // stride = 4 floats (x, y, z, alpha)
+            glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 4 * sizeof(float), 0);
+            glEnableVertexAttribArray(0);
+            glVertexAttribPointer(1, 1, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(3 * sizeof(float)));
+            glEnableVertexAttribArray(1);
+            glBindVertexArray(0);
+        }
+        // Build interleaved data with fading alpha
+        trailData.clear();
+        size_t n = trailPositions.size();
+        trailData.reserve(n * 4);
+        for (size_t i = 0; i < n; i++) {
+            float t = (float)i / (float)(n - 1); // 0 = oldest, 1 = newest
+            float alpha = 0.05f + t * 0.85f; // fade from 0.05 to 0.9
+            trailData.push_back(trailPositions[i].x);
+            trailData.push_back(trailPositions[i].y);
+            trailData.push_back(trailPositions[i].z);
+            trailData.push_back(alpha);
+        }
+        glBindBuffer(GL_ARRAY_BUFFER, trailVBO);
+        glBufferData(GL_ARRAY_BUFFER, trailData.size() * sizeof(float), trailData.data(), GL_DYNAMIC_DRAW);
+        trailDirty = false;
+    }
+
+    void drawTrail() {
+        if (trailPositions.size() < 2 || trailVAO == 0) return;
+        glBindVertexArray(trailVAO);
+        glDrawArrays(GL_LINE_STRIP, 0, (GLsizei)trailPositions.size());
+        glBindVertexArray(0);
+    }
+
+    // future (predicted) trail - also interleaved (x, y, z, alpha)
+    std::vector<glm::vec3> futureTrail;
+    std::vector<float> futureData;
+    GLuint futureVAO = 0, futureVBO = 0;
+    bool futureDirty = false;
+
+    void uploadFutureTrail() {
+        if (!futureDirty || futureTrail.size() < 2) return;
+        if (futureVAO == 0) {
+            glGenVertexArrays(1, &futureVAO);
+            glGenBuffers(1, &futureVBO);
+            glBindVertexArray(futureVAO);
+            glBindBuffer(GL_ARRAY_BUFFER, futureVBO);
+            glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 4 * sizeof(float), 0);
+            glEnableVertexAttribArray(0);
+            glVertexAttribPointer(1, 1, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(3 * sizeof(float)));
+            glEnableVertexAttribArray(1);
+            glBindVertexArray(0);
+        }
+        // Build interleaved data with uniform alpha
+        futureData.clear();
+        size_t n = futureTrail.size();
+        futureData.reserve(n * 4);
+        for (size_t i = 0; i < n; i++) {
+            futureData.push_back(futureTrail[i].x);
+            futureData.push_back(futureTrail[i].y);
+            futureData.push_back(futureTrail[i].z);
+            futureData.push_back(0.5f); // semi-transparent
+        }
+        glBindBuffer(GL_ARRAY_BUFFER, futureVBO);
+        glBufferData(GL_ARRAY_BUFFER, futureData.size() * sizeof(float), futureData.data(), GL_DYNAMIC_DRAW);
+        futureDirty = false;
+    }
+
+    void drawFutureTrail() {
+        if (futureTrail.size() < 2 || futureVAO == 0) return;
+        glBindVertexArray(futureVAO);
+        glDrawArrays(GL_LINE_STRIP, 0, (GLsizei)futureTrail.size());
+        glBindVertexArray(0);
+    }
 };
 std::vector<Body> bodies;
+int trailFrameCounter = 0;
+int futureFrameCounter = 0;
 
 void setupSolarSystem() {
     bodies.clear();
@@ -206,6 +314,7 @@ void setupSolarSystem() {
     };
 
     push_body("Sun", 1.9885e30, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 6.9634e8f, {1.0f, 0.9f, 0.6f});
+    bodies.back().isStar = true;
 
     struct PlanetDef { const char* name; double distAU; double speed; double angleDeg; double mass; float radius; glm::vec3 color; };
     std::vector<PlanetDef> planets = {
@@ -374,36 +483,93 @@ GLuint makeProgram(const char* vsSrc, const char* fsSrc) {
 using Clock = std::chrono::high_resolution_clock;
 auto tPrev = Clock::now();
 
-GLuint orbitVAO = 0, orbitVBO = 0;
-const int ORBIT_SEGMENTS = 64;
-
-void buildOrbitMesh() {
-    std::vector<float> verts;
-    verts.reserve(ORBIT_SEGMENTS * 3);
-    for (int i = 0; i < ORBIT_SEGMENTS; i++) {
-        float theta = (float)i / ORBIT_SEGMENTS * glm::two_pi<float>();
-        verts.push_back(cos(theta));
-        verts.push_back(0.0f);
-        verts.push_back(sin(theta));
+// Helper: compute accelerations on a temporary body set (for future prediction)
+void computeAccelsTemp(std::vector<glm::dvec3>& positions, std::vector<double>& masses,
+                       std::vector<glm::dvec3>& acc) {
+    size_t n = positions.size();
+    acc.assign(n, glm::dvec3(0.0));
+    const double G_SCALING_FACTOR = MASS_SCALE / (DISTANCE_SCALE * DISTANCE_SCALE * DISTANCE_SCALE);
+    for(size_t i=0;i<n;i++){
+        for(size_t j=0;j<n;j++){
+            if(i==j) continue;
+            glm::dvec3 r = positions[j] - positions[i];
+            double dist2 = glm::dot(r,r) + 1e-6;
+            double dist = sqrt(dist2);
+            double f = (G_CONST * masses[j]) / dist2;
+            f *= G_SCALING_FACTOR;
+            acc[i] += (r/dist) * f;
+        }
     }
-    glGenVertexArrays(1, &orbitVAO);
-    glGenBuffers(1, &orbitVBO);
-    glBindVertexArray(orbitVAO);
-    glBindBuffer(GL_ARRAY_BUFFER, orbitVBO);
-    glBufferData(GL_ARRAY_BUFFER, verts.size() * sizeof(float), verts.data(), GL_STATIC_DRAW);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), 0);
-    glEnableVertexAttribArray(0);
-    glBindVertexArray(0);
 }
 
-void drawOrbit(float radius) {
-    glUseProgram(gOrbitProg); // Use the simple orbit shader
-    glm::mat4 model = glm::scale(glm::mat4(1.0f), glm::vec3(radius));
+void predictFutureTrails() {
+    size_t n = bodies.size();
+    // Clone current state
+    std::vector<glm::dvec3> pos(n), vel(n);
+    std::vector<double> mass(n);
+    for (size_t i = 0; i < n; i++) {
+        pos[i] = bodies[i].pos;
+        vel[i] = bodies[i].vel;
+        mass[i] = bodies[i].mass;
+    }
+
+    // Clear future trails
+    for (auto &b : bodies) {
+        b.futureTrail.clear();
+    }
+
+    // Add current position as first point
+    for (size_t i = 0; i < n; i++) {
+        if (!bodies[i].isStar) {
+            bodies[i].futureTrail.push_back(glm::vec3((float)pos[i].x, (float)pos[i].y, (float)pos[i].z));
+        }
+    }
+
+    // Simulate forward
+    double fdt = FUTURE_STEP_DT;
+    for (int step = 0; step < FUTURE_TRAIL_POINTS; step++) {
+        // Verlet integration on temp data
+        std::vector<glm::dvec3> a_old;
+        computeAccelsTemp(pos, mass, a_old);
+        for (size_t i = 0; i < n; i++) {
+            pos[i] += vel[i] * fdt + 0.5 * a_old[i] * fdt * fdt;
+        }
+        std::vector<glm::dvec3> a_new;
+        computeAccelsTemp(pos, mass, a_new);
+        for (size_t i = 0; i < n; i++) {
+            vel[i] += 0.5 * (a_old[i] + a_new[i]) * fdt;
+        }
+
+        // Record
+        for (size_t i = 0; i < n; i++) {
+            if (!bodies[i].isStar) {
+                bodies[i].futureTrail.push_back(glm::vec3((float)pos[i].x, (float)pos[i].y, (float)pos[i].z));
+            }
+        }
+    }
+
+    for (auto &b : bodies) {
+        b.futureDirty = true;
+    }
+}
+
+void drawBodyTrail(Body &b) {
+    if (b.isStar) return;
+    glm::mat4 model(1.0f); // trail positions are already in world space
+
+    // Draw past trail (fading from transparent to solid via per-vertex alpha)
+    b.uploadTrail();
+    glUseProgram(gOrbitProg);
     glUniformMatrix4fv(locOrbitM, 1, GL_FALSE, glm::value_ptr(model));
-    glUniform3f(locOrbitColor, 0.3f, 0.3f, 0.3f);
-    glBindVertexArray(orbitVAO);
-    glDrawArrays(GL_LINE_LOOP, 0, ORBIT_SEGMENTS);
-    glBindVertexArray(0);
+    glUniform3f(locOrbitColor, b.color.r * 0.6f, b.color.g * 0.6f, b.color.b * 0.6f);
+    b.drawTrail();
+
+    // Draw future trail (semi-transparent via per-vertex alpha)
+    b.uploadFutureTrail();
+    glUseProgram(gOrbitProg);
+    glUniformMatrix4fv(locOrbitM, 1, GL_FALSE, glm::value_ptr(model));
+    glUniform3f(locOrbitColor, b.color.r * 0.35f, b.color.g * 0.35f, b.color.b * 0.35f);
+    b.drawFutureTrail();
 }
 
 // main loop function (called by emscripten)
@@ -425,6 +591,24 @@ void main_loop() {
     double sdt = dt / sub;
     for(int i=0;i<sub;i++) integrateVerlet(sdt);
 
+    // record orbit trails periodically
+    trailFrameCounter++;
+    if (trailFrameCounter >= ORBIT_TRAIL_RECORD_INTERVAL) {
+        trailFrameCounter = 0;
+        for (auto &b : bodies) {
+            if (!b.isStar) {
+                b.recordTrailPoint();
+            }
+        }
+    }
+
+    // predict future trails periodically
+    futureFrameCounter++;
+    if (futureFrameCounter >= FUTURE_PREDICT_INTERVAL) {
+        futureFrameCounter = 0;
+        predictFutureTrails();
+    }
+
     // --- Determine framebuffer size cross-platform ---
 #ifdef __EMSCRIPTEN__
     int width = gWidth;
@@ -440,6 +624,10 @@ void main_loop() {
     glViewport(0, 0, width, height);
     glClearColor(0.02f,0.02f,0.04f,1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    // Enable blending for transparent orbit trails
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
     // camera
     float yawRad = glm::radians(yaw), pitchRad = glm::radians(pitch);
@@ -461,12 +649,10 @@ void main_loop() {
     glUniformMatrix4fv(locP, 1, GL_FALSE, glm::value_ptr(proj));
     glUniform3f(locLight, camPos.x, camPos.y, camPos.z);
 
-    for(const auto &b : bodies){
-        if (b.name != "Sun") {
-            float r = glm::length(b.pos);
-            drawOrbit(r); // draw circle with current orbital radius
-        }
+    for(auto &b : bodies){
+        drawBodyTrail(b);
 
+        glDisable(GL_BLEND); // solid bodies
         glUseProgram(gProg);
 
         glm::mat4 model(1.0f);
@@ -476,8 +662,11 @@ void main_loop() {
         glUniformMatrix4fv(locM, 1, GL_FALSE, glm::value_ptr(model));
         glUniform3fv(locColor, 1, glm::value_ptr(b.color));
         sphereMesh.draw();
+
+        glEnable(GL_BLEND); // re-enable for next body's trail
     }
 
+    glDisable(GL_BLEND);
     glfwSwapBuffers(gWindow);
     glfwPollEvents();
 }
@@ -581,7 +770,6 @@ int main() {
     }
 
     tPrev = Clock::now();
-    buildOrbitMesh();
 
     // Use emscripten main loop to integrate with browser scheduling
     emscripten_set_main_loop(main_loop, 0, true);
