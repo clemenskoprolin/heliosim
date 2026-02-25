@@ -25,6 +25,269 @@
       top: 8px;
       color: #eee;
       font-family: monospace;
+      pointer-events: none;
+    }
+
+    /* Add Body Panel */
+    #add-btn {
+      position: absolute;
+      right: 16px;
+      top: 16px;
+      background: rgba(30, 60, 120, 0.7);
+      border: 1px solid rgba(100, 160, 255, 0.4);
+      color: #dde8ff;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      font-size: 14px;
+      padding: 8px 18px;
+      border-radius: 6px;
+      cursor: pointer;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      transition: background 0.2s;
+      z-index: 10;
+    }
+    #add-btn:hover { background: rgba(40, 80, 160, 0.85); }
+
+    #add-panel {
+      display: none;
+      position: absolute;
+      right: 16px;
+      top: 56px;
+      width: 340px;
+      background: rgba(10, 18, 40, 0.92);
+      border: 1px solid rgba(100, 160, 255, 0.3);
+      border-radius: 12px;
+      padding: 16px;
+      color: #ccd8f0;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      font-size: 13px;
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      z-index: 10;
+      max-height: 85vh;
+      overflow-y: auto;
+    }
+    #add-panel.open { display: block; }
+    #add-panel h3 {
+      margin: 0 0 12px;
+      font-size: 15px;
+      color: #a0c0ff;
+      font-weight: 600;
+    }
+    #add-panel label {
+      display: block;
+      margin: 8px 0 3px;
+      font-size: 12px;
+      color: #8899bb;
+    }
+    #add-panel input, #add-panel select {
+      width: 100%;
+      box-sizing: border-box;
+      background: rgba(20, 30, 60, 0.8);
+      border: 1px solid rgba(80, 120, 200, 0.3);
+      color: #dde8ff;
+      padding: 6px 8px;
+      border-radius: 4px;
+      font-size: 13px;
+      font-family: inherit;
+    }
+    #add-panel input:focus, #add-panel select:focus {
+      outline: none;
+      border-color: rgba(100, 160, 255, 0.6);
+    }
+    .field-row {
+      display: flex;
+      gap: 6px;
+    }
+    .field-row > div { flex: 1; }
+    .field-row label { font-size: 11px; }
+    #add-panel .color-preview {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border-radius: 3px;
+      vertical-align: middle;
+      margin-left: 6px;
+      border: 1px solid rgba(255,255,255,0.2);
+    }
+    #add-panel .section-label {
+      margin-top: 14px;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #667799;
+      border-bottom: 1px solid rgba(80, 120, 200, 0.2);
+      padding-bottom: 4px;
+    }
+
+    /* Preset grid */
+    .preset-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+      margin-bottom: 6px;
+    }
+    .preset-btn {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 5px;
+      padding: 10px 4px 8px;
+      background: rgba(20, 30, 60, 0.7);
+      border: 1px solid rgba(80, 120, 200, 0.2);
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.15s;
+      color: #b0c4e8;
+      font-family: inherit;
+      font-size: 11px;
+      text-align: center;
+      line-height: 1.2;
+    }
+    .preset-btn:hover {
+      background: rgba(30, 50, 100, 0.8);
+      border-color: rgba(100, 160, 255, 0.5);
+    }
+    .preset-btn.selected {
+      background: rgba(40, 80, 160, 0.6);
+      border-color: rgba(100, 180, 255, 0.7);
+      color: #ddeeff;
+    }
+    .preset-btn .preview-orb {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .preset-btn .preview-orb.star {
+      box-shadow: 0 0 10px 3px var(--orb-glow);
+    }
+    .preset-btn .preset-name {
+      font-weight: 500;
+    }
+    .preset-btn .preset-cat {
+      font-size: 9px;
+      color: #667799;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    /* Detail fields toggle */
+    #detail-toggle {
+      background: none;
+      border: none;
+      color: #6688aa;
+      font-size: 11px;
+      cursor: pointer;
+      padding: 6px 0 2px;
+      font-family: inherit;
+      display: block;
+      width: 100%;
+      text-align: left;
+    }
+    #detail-toggle:hover { color: #88aacc; }
+    #detail-fields { display: none; }
+    #detail-fields.open { display: block; }
+    .btn-row {
+      display: flex;
+      gap: 8px;
+      margin-top: 16px;
+    }
+    .btn-row button {
+      flex: 1;
+      padding: 8px;
+      border-radius: 5px;
+      border: 1px solid rgba(100, 160, 255, 0.3);
+      font-family: inherit;
+      font-size: 13px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    #btn-add-body {
+      background: rgba(40, 100, 200, 0.6);
+      color: #fff;
+    }
+    #btn-add-body:hover { background: rgba(50, 120, 240, 0.8); }
+    #btn-cancel {
+      background: rgba(60, 60, 80, 0.5);
+      color: #aab;
+    }
+    #btn-cancel:hover { background: rgba(80, 80, 100, 0.7); }
+
+    /* Speed controls */
+    #speed-controls {
+      position: absolute;
+      left: 50%;
+      bottom: 16px;
+      transform: translateX(-50%);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(10, 18, 40, 0.75);
+      border: 1px solid rgba(100, 160, 255, 0.25);
+      border-radius: 8px;
+      padding: 6px 14px;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      z-index: 10;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      color: #ccd8f0;
+      font-size: 13px;
+    }
+    #speed-controls button {
+      background: rgba(40, 70, 140, 0.5);
+      border: 1px solid rgba(100, 160, 255, 0.3);
+      color: #dde8ff;
+      font-size: 15px;
+      width: 30px;
+      height: 30px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-family: inherit;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s;
+      padding: 0;
+    }
+    #speed-controls button:hover { background: rgba(50, 90, 180, 0.7); }
+    #speed-label {
+      min-width: 60px;
+      text-align: center;
+      font-variant-numeric: tabular-nums;
+    }
+    #speed-controls .pause-btn {
+      font-size: 13px;
+      width: 36px;
+    }
+
+    /* Placement mode cursor & banner */
+    body.placing #canvas { cursor: crosshair; }
+    #placement-banner {
+      display: none;
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(10, 18, 40, 0.85);
+      border: 1px solid rgba(100, 200, 255, 0.4);
+      border-radius: 10px;
+      padding: 16px 28px;
+      color: #a0d0ff;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      font-size: 16px;
+      text-align: center;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      z-index: 20;
+      pointer-events: none;
+      animation: pulse-border 1.5s ease-in-out infinite;
+    }
+    #placement-banner.visible { display: block; }
+    #placement-banner small { display: block; margin-top: 6px; color: #6688aa; font-size: 12px; }
+    @keyframes pulse-border {
+      0%, 100% { border-color: rgba(100, 200, 255, 0.4); }
+      50% { border-color: rgba(100, 200, 255, 0.8); }
     }
   </style>
 </head>
@@ -32,6 +295,48 @@
 <body>
   <canvas id="canvas"></canvas>
   <div id="overlay">HelioSim - Drag to orbit, scroll/pinch to zoom</div>
+  <button id="add-btn">+ Add Body</button>
+  <div id="placement-banner">Click anywhere to place the body<small>Press Escape or right-click to cancel</small></div>
+  <div id="speed-controls">
+    <button id="speed-slower" title="Slower">&#9664;</button>
+    <button class="pause-btn" id="speed-pause" title="Pause/Play">&#9646;&#9646;</button>
+    <button id="speed-faster" title="Faster">&#9654;</button>
+    <span id="speed-label">1x</span>
+  </div>
+  <div id="add-panel">
+    <h3>Add Celestial Body</h3>
+    <div class="section-label" style="margin-top:0">Choose a type</div>
+    <div class="preset-grid" id="preset-grid"></div>
+
+    <button id="detail-toggle">&#9662; Customize details...</button>
+    <div id="detail-fields">
+      <div class="section-label">Physical Properties</div>
+      <label>Mass (kg)</label>
+      <input type="text" id="f-mass" value="5.972e24" placeholder="e.g. 5.972e24">
+      <label>Radius (m)</label>
+      <input type="text" id="f-radius" value="6.371e6" placeholder="e.g. 6.371e6">
+      <label>Type</label>
+      <select id="f-type">
+        <option value="0">Planet</option>
+        <option value="1">Star</option>
+      </select>
+
+      <div class="section-label">Orbit</div>
+      <label>Orbital Speed (m/s) <span style="color:#667799; font-size:11px">— 0 = auto circular</span></label>
+      <input type="text" id="f-speed" value="0" placeholder="0 = auto circular orbit">
+
+      <div class="section-label">Appearance</div>
+      <label>Color <span class="color-preview" id="color-preview"></span></label>
+      <input type="color" id="f-color" value="#3366ff">
+    </div>
+
+    <p style="margin:10px 0 0;font-size:11px;color:#556688;text-align:center">Click the simulation to place the body</p>
+
+    <div class="btn-row">
+      <button id="btn-cancel">Cancel</button>
+      <button id="btn-add-body">Place Body</button>
+    </div>
+  </div>
   <!-- TOUCH_EMULATOR -->
   <script>
     const canvas = document.getElementById('canvas');
@@ -82,13 +387,15 @@
       const touches = e.touches;
 
       if (touches.length === 1) {
-        console.log("touchstart 1 finger")
+        // Record for tap detection (placement mode)
+        touchStartTime = Date.now();
+        touchStartPos = { x: touches[0].pageX, y: touches[0].pageY };
+
         // Start 1-finger drag
         touchState = 1;
         const pos = getTouchPos(touches[0]);
         Module._emscripten_touch_start(pos.x, pos.y);
       } else if (touches.length === 2) {
-        console.log("touchstart 2 fingers")
         // Start 2-finger pinch (zoom only, no drag)
         touchState = 2;
         lastPinchDist = getPinchDist(touches);
@@ -100,7 +407,23 @@
       if (!window.Module) return;
 
       const touches = e.touches;
+      const changedTouch = e.changedTouches[0];
       lastPinchDist = 0; // Always reset pinch
+
+      // Detect single-finger tap for placement mode
+      if (placementMode && touches.length === 0 && changedTouch) {
+        const dt = Date.now() - touchStartTime;
+        const dx = changedTouch.pageX - touchStartPos.x;
+        const dy = changedTouch.pageY - touchStartPos.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dt < TAP_MAX_DURATION && dist < TAP_MAX_DISTANCE) {
+          placeBodyAt(changedTouch.pageX * dpr, changedTouch.pageY * dpr);
+          touchState = 0;
+          Module._emscripten_touch_end();
+          touchActive = false;
+          return;
+        }
+      }
 
       if (touches.length === 0) {
         // All fingers lifted
@@ -123,7 +446,6 @@
       const touches = e.touches;
 
       if (touchState === 1 && touches.length === 1 && Module._emscripten_touch_move) {
-        console.log("touchmove 1 fingers")
         // --- 1-finger drag (orbit) ---
         const pos = getTouchPos(touches[0]);
         Module._emscripten_touch_move(pos.x, pos.y);
@@ -132,7 +454,6 @@
         // --- 2-finger pinch (zoom) ---
         const newDist = getPinchDist(touches);
         const deltaDist = newDist - lastPinchDist;
-        console.log(deltaDist);
 
         Module._emscripten_touch_zoom(deltaDist * zoomSensitivity);
 
@@ -153,6 +474,236 @@
     window.setTimeout(resizeCanvas, 500);
   </script>
   <script src="heliosim.js"></script>
+  <script>
+    // --- Add Body Panel & Placement Mode ---
+    const AU = 1.496e11;
+    const G = 6.67430e-11;
+    const M_SUN = 1.9885e30;
+    const DISTANCE_SCALE = 1e10;
+
+    const presets = [
+      { id: 'earth-like',  name: 'Earth',       cat: 'Planet', mass: '5.972e24', radius: '6.371e6',  type: '0', speed: '0', color: '#3366ff' },
+      { id: 'mars-like',   name: 'Mars',        cat: 'Planet', mass: '6.417e23', radius: '3.39e6',   type: '0', speed: '0', color: '#ff6633' },
+      { id: 'super-earth', name: 'Super-Earth', cat: 'Planet', mass: '3e25',     radius: '1.2e7',    type: '0', speed: '0', color: '#55aa88' },
+      { id: 'gas-giant',   name: 'Gas Giant',   cat: 'Planet', mass: '1.898e27', radius: '6.9911e7', type: '0', speed: '0', color: '#ffcc66' },
+      { id: 'ice-giant',   name: 'Ice Giant',   cat: 'Planet', mass: '1.024e26', radius: '2.46e7',   type: '0', speed: '0', color: '#4488cc' },
+      { id: 'moon',        name: 'Moon',        cat: 'Small',  mass: '7.35e22',  radius: '1.737e6',  type: '0', speed: '0', color: '#aaaaaa' },
+      { id: 'asteroid',    name: 'Asteroid',    cat: 'Small',  mass: '1e15',     radius: '5e3',      type: '0', speed: '0', color: '#887766' },
+      { id: 'sun',         name: 'Sun',         cat: 'Star',   mass: '1.9885e30', radius: '6.9634e8', type: '1', speed: '0', color: '#fff0a0' },
+      { id: 'red-dwarf',   name: 'Red Dwarf',   cat: 'Star',   mass: '1.6e29',   radius: '1.4e8',    type: '1', speed: '0', color: '#ff6644' },
+      { id: 'blue-giant',  name: 'Blue Giant',  cat: 'Star',   mass: '4e31',     radius: '5e9',      type: '1', speed: '0', color: '#88bbff' },
+    ];
+
+    const addBtn = document.getElementById('add-btn');
+    const panel = document.getElementById('add-panel');
+    const colorInput = document.getElementById('f-color');
+    const colorPreview = document.getElementById('color-preview');
+    const placementBanner = document.getElementById('placement-banner');
+    const presetGrid = document.getElementById('preset-grid');
+    const detailToggle = document.getElementById('detail-toggle');
+    const detailFields = document.getElementById('detail-fields');
+
+    let placementMode = false;
+    let pendingBody = null;
+    let selectedPreset = presets[0]; // default to Earth
+
+    // Build preset grid
+    function buildPresetGrid() {
+      presetGrid.innerHTML = '';
+      presets.forEach(p => {
+        const btn = document.createElement('button');
+        btn.className = 'preset-btn' + (p === selectedPreset ? ' selected' : '');
+        btn.dataset.id = p.id;
+        const isStar = p.type === '1';
+        const glowStyle = isStar ? `; --orb-glow: ${p.color}` : '';
+        btn.innerHTML = `
+          <div class="preview-orb${isStar ? ' star' : ''}" style="background: ${p.color}${glowStyle}"></div>
+          <span class="preset-name">${p.name}</span>
+          <span class="preset-cat">${p.cat}</span>
+        `;
+        btn.addEventListener('click', () => selectPreset(p));
+        presetGrid.appendChild(btn);
+      });
+    }
+
+    function selectPreset(p) {
+      selectedPreset = p;
+      document.getElementById('f-mass').value = p.mass;
+      document.getElementById('f-radius').value = p.radius;
+      document.getElementById('f-type').value = p.type;
+      document.getElementById('f-speed').value = p.speed;
+      colorInput.value = p.color;
+      updateColorPreview();
+      // Update grid selection
+      presetGrid.querySelectorAll('.preset-btn').forEach(btn => {
+        btn.classList.toggle('selected', btn.dataset.id === p.id);
+      });
+    }
+
+    buildPresetGrid();
+
+    // Detail toggle
+    detailToggle.addEventListener('click', () => {
+      const open = detailFields.classList.toggle('open');
+      detailToggle.innerHTML = open ? '&#9652; Hide details...' : '&#9662; Customize details...';
+    });
+
+    addBtn.addEventListener('click', () => {
+      if (placementMode) {
+        cancelPlacement();
+        return;
+      }
+      panel.classList.toggle('open');
+    });
+    document.getElementById('btn-cancel').addEventListener('click', () => {
+      panel.classList.remove('open');
+      cancelPlacement();
+    });
+
+    // Color preview
+    function updateColorPreview() {
+      colorPreview.style.background = colorInput.value;
+    }
+    colorInput.addEventListener('input', updateColorPreview);
+    updateColorPreview();
+
+    // Hex to RGB [0..1]
+    function hexToRgb(hex) {
+      const r = parseInt(hex.slice(1, 3), 16) / 255;
+      const g = parseInt(hex.slice(3, 5), 16) / 255;
+      const b = parseInt(hex.slice(5, 7), 16) / 255;
+      return [r, g, b];
+    }
+
+    // "Place Body" button — enters placement mode
+    document.getElementById('btn-add-body').addEventListener('click', () => {
+      if (!window.Module || !Module.ccall) {
+        alert('Simulation not loaded yet');
+        return;
+      }
+
+      const mass = parseFloat(document.getElementById('f-mass').value);
+      const radius = parseFloat(document.getElementById('f-radius').value);
+      const isStar = parseInt(document.getElementById('f-type').value);
+      let speed = parseFloat(document.getElementById('f-speed').value);
+      const [cr, cg, cb] = hexToRgb(colorInput.value);
+
+      pendingBody = { mass, radius, isStar, speed, cr, cg, cb };
+      placementMode = true;
+      panel.classList.remove('open');
+      document.body.classList.add('placing');
+      placementBanner.classList.add('visible');
+    });
+
+    function cancelPlacement() {
+      placementMode = false;
+      pendingBody = null;
+      document.body.classList.remove('placing');
+      placementBanner.classList.remove('visible');
+    }
+
+    // Escape key cancels placement
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && placementMode) {
+        cancelPlacement();
+      }
+    });
+
+    // Place body at screen coords
+    function placeBodyAt(screenX, screenY) {
+      if (!placementMode || !pendingBody) return false;
+
+      const hit = Module.ccall('screen_to_world', 'number', ['number', 'number'], [screenX, screenY]);
+      if (!hit) return false;
+
+      const worldX = Module.ccall('get_world_x', 'number', [], []);
+      const worldZ = Module.ccall('get_world_z', 'number', [], []);
+
+      // Convert from render coords back to real meters
+      const realX = worldX * DISTANCE_SCALE;
+      const realZ = worldZ * DISTANCE_SCALE;
+      const dist_m = Math.sqrt(realX * realX + realZ * realZ);
+
+      let speed = pendingBody.speed;
+      // Auto-calculate circular orbit speed if speed is 0
+      if (speed === 0 && dist_m > 1e9) {
+        speed = Math.sqrt(G * M_SUN / dist_m);
+      }
+
+      // Velocity perpendicular to position (prograde)
+      const angle = Math.atan2(realZ, realX);
+      const vx = -speed * Math.sin(angle);
+      const vy = 0;
+      const vz = speed * Math.cos(angle);
+
+      Module.ccall('add_body', null,
+        ['number','number','number','number','number','number','number','number','number','number','number','number'],
+        [pendingBody.mass, realX, 0, realZ, vx, vy, vz, pendingBody.radius,
+         pendingBody.cr, pendingBody.cg, pendingBody.cb, pendingBody.isStar]
+      );
+
+      cancelPlacement();
+      return true;
+    }
+
+    // --- Mouse click placement ---
+    canvas.addEventListener('mousedown', (e) => {
+      if (placementMode && e.button === 0) {
+        e.preventDefault();
+        e.stopPropagation();
+        placeBodyAt(e.offsetX * dpr, e.offsetY * dpr);
+      }
+    }, true);  // capture phase so it fires before GLFW
+
+    // Right-click cancels placement
+    canvas.addEventListener('contextmenu', (e) => {
+      if (placementMode) {
+        e.preventDefault();
+        cancelPlacement();
+      }
+    });
+
+    // --- Touch placement (distinguish tap from drag) ---
+    let touchStartTime = 0;
+    let touchStartPos = { x: 0, y: 0 };
+    const TAP_MAX_DURATION = 300;  // ms
+    const TAP_MAX_DISTANCE = 15;  // px
+
+    // Prevent touch events on the panel from reaching the canvas
+    panel.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: false });
+    panel.addEventListener('touchmove', (e) => e.stopPropagation(), { passive: false });
+    panel.addEventListener('touchend', (e) => e.stopPropagation(), { passive: false });
+
+    // --- Speed Control ---
+    const speedSteps = [0, 0.1, 0.25, 0.5, 1, 2, 5, 10, 50, 100];
+    let speedIndex = 4;  // starts at 1x
+    let savedSpeedIndex = 4;
+    const speedLabel = document.getElementById('speed-label');
+
+    function updateSpeed() {
+      const val = speedSteps[speedIndex];
+      if (Module && Module.ccall) {
+        Module.ccall('set_time_scale', null, ['number'], [val]);
+      }
+      speedLabel.textContent = val === 0 ? 'Paused' : val + 'x';
+    }
+
+    document.getElementById('speed-slower').addEventListener('click', () => {
+      if (speedIndex > 0) { speedIndex--; updateSpeed(); }
+    });
+    document.getElementById('speed-faster').addEventListener('click', () => {
+      if (speedIndex < speedSteps.length - 1) { speedIndex++; updateSpeed(); }
+    });
+    document.getElementById('speed-pause').addEventListener('click', () => {
+      if (speedIndex === 0) {
+        speedIndex = savedSpeedIndex;
+      } else {
+        savedSpeedIndex = speedIndex;
+        speedIndex = 0;
+      }
+      updateSpeed();
+    });
+  </script>
 </body>
 
 </html>

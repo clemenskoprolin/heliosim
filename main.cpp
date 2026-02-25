@@ -23,6 +23,7 @@ const double G_CONST = 6.67430e-11;
 const double DISTANCE_SCALE = 1e10;
 const double MASS_SCALE = 1e20;
 const double TIME_SCALE = 60*60*24; // 1 sec -> 1 day
+double timeScaleMultiplier = 1.0;
 
 const int SPHERE_LAT = 32;
 const int SPHERE_LONG = 32;
@@ -525,7 +526,7 @@ struct Body {
     glm::dvec3 vel;
     float radius;
     glm::vec3 color;
-    bool isStar = false; // stars don't get orbit trails
+    bool isStar = false;
 
     // orbit trail - stored as interleaved (x, y, z, alpha) per vertex
     std::vector<float> trailData; // interleaved: x,y,z,alpha
@@ -865,9 +866,7 @@ void predictFutureTrails() {
 
     // Add current position as first point
     for (size_t i = 0; i < n; i++) {
-        if (!bodies[i].isStar) {
-            bodies[i].futureTrail.push_back(glm::vec3((float)pos[i].x, (float)pos[i].y, (float)pos[i].z));
-        }
+        bodies[i].futureTrail.push_back(glm::vec3((float)pos[i].x, (float)pos[i].y, (float)pos[i].z));
     }
 
     // Simulate forward
@@ -887,9 +886,7 @@ void predictFutureTrails() {
 
         // Record
         for (size_t i = 0; i < n; i++) {
-            if (!bodies[i].isStar) {
-                bodies[i].futureTrail.push_back(glm::vec3((float)pos[i].x, (float)pos[i].y, (float)pos[i].z));
-            }
+            bodies[i].futureTrail.push_back(glm::vec3((float)pos[i].x, (float)pos[i].y, (float)pos[i].z));
         }
     }
 
@@ -899,7 +896,6 @@ void predictFutureTrails() {
 }
 
 void drawBodyTrail(Body &b) {
-    if (b.isStar) return;
     glm::mat4 model(1.0f); // trail positions are already in world space
 
     // Draw past trail (fading from transparent to solid via per-vertex alpha)
@@ -928,8 +924,8 @@ void main_loop() {
     double elapsed_seconds = std::min(elapsed.count(), MAX_ELAPSED_SECONDS);
     if(elapsed_seconds <= 0) elapsed_seconds = 1.0 / 60.0;
 
-    double dt = elapsed.count() * TIME_SCALE;
-    if(dt <= 0) dt = 1.0/60.0 * TIME_SCALE;
+    double dt = elapsed.count() * TIME_SCALE * timeScaleMultiplier;
+    if(dt <= 0) dt = 1.0/60.0 * TIME_SCALE * timeScaleMultiplier;
 
     // physics with substeps
     int sub = 3;
@@ -941,9 +937,7 @@ void main_loop() {
     if (trailFrameCounter >= ORBIT_TRAIL_RECORD_INTERVAL) {
         trailFrameCounter = 0;
         for (auto &b : bodies) {
-            if (!b.isStar) {
-                b.recordTrailPoint();
-            }
+            b.recordTrailPoint();
         }
     }
 
@@ -1084,6 +1078,89 @@ extern "C" {
     void emscripten_touch_zoom(double delta_zoom) {
         handle_scroll(delta_zoom); 
     }
+
+    // Add a body to the simulation
+    // All values in real-world units (meters, kg, m/s) - will be scaled internally
+    EMSCRIPTEN_KEEPALIVE
+    void add_body(double mass, double px, double py, double pz,
+                  double vx, double vy, double vz,
+                  float radius, float cr, float cg, float cb, int is_star) {
+        Body b;
+        b.name = is_star ? "Star" : "Planet";
+        b.mass = mass / MASS_SCALE;
+        b.pos = glm::dvec3(px, py, pz) / DISTANCE_SCALE;
+        b.vel = glm::dvec3(vx, vy, vz) / DISTANCE_SCALE;
+        b.radius = (float)(radius / DISTANCE_SCALE);
+        b.color = glm::vec3(cr, cg, cb);
+        b.isStar = (is_star != 0);
+        bodies.push_back(b);
+
+        // Trigger future trail re-prediction
+        futureFrameCounter = FUTURE_PREDICT_INTERVAL;
+    }
+
+    // Get the number of bodies currently in the simulation
+    EMSCRIPTEN_KEEPALIVE
+    int get_body_count() {
+        return (int)bodies.size();
+    }
+
+    // --- Time scale control ---
+    EMSCRIPTEN_KEEPALIVE
+    void set_time_scale(double multiplier) {
+        timeScaleMultiplier = multiplier;
+    }
+
+    EMSCRIPTEN_KEEPALIVE
+    double get_time_scale() {
+        return timeScaleMultiplier;
+    }
+
+    // --- Screen-to-world raycast (y=0 plane) ---
+    // Stores result in globals; call get_world_x/z after a successful hit.
+    static double s2w_x = 0.0, s2w_z = 0.0;
+
+    EMSCRIPTEN_KEEPALIVE
+    int screen_to_world(double screen_x, double screen_y) {
+        // Reconstruct camera
+        float yawRad = glm::radians(yaw), pitchRad = glm::radians(pitch);
+        glm::vec3 camPos;
+        camPos.x = camTarget.x + distanceCam * cos(pitchRad) * cos(yawRad);
+        camPos.y = camTarget.y + distanceCam * sin(pitchRad);
+        camPos.z = camTarget.z + distanceCam * cos(pitchRad) * sin(yawRad);
+
+        glm::mat4 view = glm::lookAt(camPos, camTarget, glm::vec3(0,1,0));
+        glm::mat4 proj = glm::perspective(glm::radians(fov), (float)gWidth / (float)gHeight, 0.1f, 1000.0f);
+        glm::mat4 invVP = glm::inverse(proj * view);
+
+        // Normalize screen coords to NDC (-1..1)
+        float ndcX = (float)(2.0 * screen_x / gWidth - 1.0);
+        float ndcY = (float)(1.0 - 2.0 * screen_y / gHeight); // flip Y
+
+        // Near and far points in world space
+        glm::vec4 nearH = invVP * glm::vec4(ndcX, ndcY, -1.0f, 1.0f);
+        glm::vec4 farH  = invVP * glm::vec4(ndcX, ndcY,  1.0f, 1.0f);
+        glm::vec3 nearW = glm::vec3(nearH) / nearH.w;
+        glm::vec3 farW  = glm::vec3(farH)  / farH.w;
+
+        // Ray direction
+        glm::vec3 dir = farW - nearW;
+
+        // Intersect with y=0 plane
+        if (fabs(dir.y) < 1e-8) return 0; // parallel
+        float t = -nearW.y / dir.y;
+        glm::vec3 hit = nearW + t * dir;
+
+        s2w_x = (double)hit.x;
+        s2w_z = (double)hit.z;
+        return 1;
+    }
+
+    EMSCRIPTEN_KEEPALIVE
+    double get_world_x() { return s2w_x; }
+
+    EMSCRIPTEN_KEEPALIVE
+    double get_world_z() { return s2w_z; }
 }
 
 // ---------- init ----------

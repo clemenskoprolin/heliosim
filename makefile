@@ -3,7 +3,7 @@ SRC         := main.cpp
 BUILD_DIR   := build
 HTML        := index.html
 CXXFLAGS    := -Iexternal/glm -std=c++17 -O3
-EMFLAGS     := -s USE_GLFW=3 -s FULL_ES3=1 -s ALLOW_MEMORY_GROWTH=1 -s WASM=1
+EMFLAGS     := -s USE_GLFW=3 -s FULL_ES3=1 -s ALLOW_MEMORY_GROWTH=1 -s WASM=1 -s EXPORTED_RUNTIME_METHODS=ccall,cwrap
 PORT        := 8000
 TOUCH_EMULATOR ?= 0
 
