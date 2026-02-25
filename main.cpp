@@ -1,7 +1,3 @@
-// main_web.cpp
-// Emscripten / WebAssembly version of SolarSim using GLFW + WebGL2 (GLSL ES 3.00)
-// Compile with emcc (instructions below)
-
 #include <cstdio>
 #include <cstdlib>
 #include <cmath>
@@ -179,92 +175,90 @@ std::vector<Body> bodies;
 void setupSolarSystem() {
     bodies.clear();
 
-    // Sun
-    bodies.push_back({
-        "Sun", 1.9885e30,
-        {0, 0, 0}, {0, 0, 0},
-        6.9634e8f, {1.0f, 0.9f, 0.6f}
-    });
+    const double AU = 1.496e11; // 1 Astronomical Unit in meters
 
-    // Mercury
-    bodies.push_back({
-        "Mercury", 3.3011e23,
-        {0.387 * 1.496e11, 0, 0},
-        {0, 47.36e3, 0},
-        2.4397e6f, {0.8f, 0.7f, 0.6f}
-    });
+    // convert polar angle (degrees) and distance to x,z
+    auto polar_to_cart = [](double dist, double angle_deg, double &out_x, double &out_z){
+        double angle_rad = glm::radians(angle_deg);
+        out_x = dist * cos(angle_rad);
+        out_z = dist * sin(angle_rad);
+    };
 
-    // Venus
-    bodies.push_back({
-        "Venus", 4.8675e24,
-        {0.723 * 1.496e11, 0, 0},
-        {0, 35.02e3, 0},
-        6.0518e6f, {1.0f, 0.85f, 0.6f}
-    });
+    // compute perpendicular velocity components in XZ plane given speed and angle (degrees)
+    auto velocity_from_speed_angle = [](double speed, double angle_deg, double &out_vx, double &out_vz){
+        double angle_rad = glm::radians(angle_deg);
+        out_vx = -speed * sin(angle_rad);
+        out_vz =  speed * cos(angle_rad);
+    };
 
-    // Earth
-    bodies.push_back({
-        "Earth", 5.972e24,
-        {1.0 * 1.496e11, 0, 0},
-        {0, 29.78e3, 0},
-        6.371e6f, {0.2f, 0.4f, 1.0f}
-    });
+    auto push_body = [](const std::string &name, double mass,
+                        double px, double py, double pz,
+                        double vx, double vy, double vz,
+                        float radius, const glm::vec3 &color){
+        bodies.push_back({
+            name,
+            mass,
+            {px, py, pz},
+            {vx, vy, vz},
+            radius,
+            color
+        });
+    };
 
-    // Moon
-    bodies.push_back({
-        "Moon", 7.3477e22,
-        {1.0 * 1.496e11 + 3.844e8, 0, 0},
-        {0, 29.78e3 + 1.022e3, 0},
-        1.737e6f, {0.7f, 0.7f, 0.7f}
-    });
+    push_body("Sun", 1.9885e30, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 6.9634e8f, {1.0f, 0.9f, 0.6f});
 
-    // Mars
-    bodies.push_back({
-        "Mars", 6.4171e23,
-        {1.524 * 1.496e11, 0, 0},
-        {0, 24.077e3, 0},
-        3.3895e6f, {1.0f, 0.4f, 0.2f}
-    });
+    struct PlanetDef { const char* name; double distAU; double speed; double angleDeg; double mass; float radius; glm::vec3 color; };
+    std::vector<PlanetDef> planets = {
+        { "Mercury", 0.387, 47.36e3,  45.0,    3.3011e23, 2.4397e6f, {0.8f, 0.7f, 0.6f} },
+        { "Venus",   0.723, 35.02e3, 180.0,    4.8675e24, 6.0518e6f, {1.0f, 0.85f, 0.6f} },
+        { "Earth",   1.000, 29.78e3,  10.0,    5.972e24,  6.371e6f,  {0.2f, 0.4f, 1.0f} },
+        { "Mars",    1.524, 24.077e3, 270.0,   6.4171e23, 3.3895e6f, {1.0f, 0.4f, 0.2f} },
+        { "Jupiter", 5.203, 13.07e3,  135.0,   1.898e27,  6.9911e7f, {1.0f, 0.85f, 0.6f} },
+        { "Saturn",  9.537, 9.68e3,   240.0,   5.683e26,  5.8232e7f, {1.0f, 0.9f, 0.7f} },
+        { "Uranus",  19.191, 6.80e3,  315.0,   8.681e25,  2.5362e7f, {0.6f, 0.8f, 1.0f} },
+        { "Neptune", 30.07, 5.43e3,   60.0,    1.024e26,  2.4622e7f, {0.4f, 0.6f, 1.0f} },
+        { "Pluto",   39.48, 4.74e3,   200.0,   1.309e22,  1.1883e6f, {0.8f, 0.8f, 0.9f} }
+    };
 
-    // Jupiter
-    bodies.push_back({
-        "Jupiter", 1.898e27,
-        {5.203 * 1.496e11, 0, 0},
-        {0, 13.07e3, 0},
-        6.9911e7f, {1.0f, 0.85f, 0.6f}
-    });
+    glm::dvec3 earthPos(0.0), earthVel(0.0);
 
-    // Saturn
-    bodies.push_back({
-        "Saturn", 5.683e26,
-        {9.537 * 1.496e11, 0, 0},
-        {0, 9.68e3, 0},
-        5.8232e7f, {1.0f, 0.9f, 0.7f}
-    });
+    for (const auto &p : planets) {
+        double dist_m = p.distAU * AU;
+        double px, pz;
+        polar_to_cart(dist_m, p.angleDeg, px, pz);
 
-    // Uranus
-    bodies.push_back({
-        "Uranus", 8.681e25,
-        {19.191 * 1.496e11, 0, 0},
-        {0, 6.80e3, 0},
-        2.5362e7f, {0.6f, 0.8f, 1.0f}
-    });
+        double vx, vz;
+        velocity_from_speed_angle(p.speed, p.angleDeg, vx, vz);
 
-    // Neptune
-    bodies.push_back({
-        "Neptune", 1.024e26,
-        {30.07 * 1.496e11, 0, 0},
-        {0, 5.43e3, 0},
-        2.4622e7f, {0.4f, 0.6f, 1.0f}
-    });
+        if (std::string(p.name) == "Earth") {
+            earthPos = glm::dvec3(px, 0.0, pz);
+            earthVel = glm::dvec3(vx, 0.0, vz);
+            push_body(p.name, p.mass, px, 0.0, pz, vx, 0.0, vz, p.radius, p.color);
+        } else {
+            push_body(p.name, p.mass, px, 0.0, pz, vx, 0.0, vz, p.radius, p.color);
+        }
+    }
 
-    // Pluto (why not!)
-    bodies.push_back({
-        "Pluto", 1.309e22,
-        {39.48 * 1.496e11, 0, 0},
-        {0, 4.74e3, 0},
-        1.1883e6f, {0.8f, 0.8f, 0.9f}
-    });
+    // Moon (relative to Earth)
+    {
+        double dist = 3.844e8; // Moon's distance from Earth
+        double speed = 1.022e3; // Moon's speed relative to Earth
+        double angleDeg = 90.0;
+        double mx, mz;
+        polar_to_cart(dist, angleDeg, mx, mz);
+
+        double mvx, mvz;
+        velocity_from_speed_angle(speed, angleDeg, mvx, mvz);
+
+        // absolute position = earthPos + moon offset, absolute velocity = earthVel + moon velocity
+        glm::dvec3 moonPos = earthPos + glm::dvec3(mx, 0.0, mz);
+        glm::dvec3 moonVel = earthVel + glm::dvec3(mvx, 0.0, mvz);
+        bodies.push_back({
+            "Moon", 7.3477e22,
+            moonPos, moonVel,
+            1.737e6f, {0.7f, 0.7f, 0.7f}
+        });
+    }
 }
 
 void computeAccels(std::vector<glm::dvec3>& acc) {
@@ -315,28 +309,50 @@ GLint locOrbitM, locOrbitV, locOrbitP, locOrbitColor;
 // camera control
 double lastX=SCR_W_DEFAULT/2.0, lastY=SCR_H_DEFAULT/2.0;
 bool leftDown=false;
+bool touchMode=false;
+double touchLastX=0, touchLastY=0; // separate tracking for touch input
 float yaw=-90.0f, pitch=0.0f;
 float distanceCam = 20.0f;
 glm::vec3 camTarget = {0.0f,0.0f,0.0f};
 
-static void cursorPosCB(GLFWwindow* win, double xpos, double ypos){
-    if(!leftDown){ lastX=xpos; lastY=ypos; return; }
-    double dx = xpos - lastX; double dy = ypos - lastY;
-    lastX = xpos; lastY = ypos;
+// ---------- Input Handlers ----------
+void handle_drag(double dx, double dy) {
     float sens = 0.2f;
     yaw += dx * sens; pitch -= dy * sens;
     if(pitch>89.0f) pitch=89.0f; if(pitch<-89.0f) pitch=-89.0f;
 }
-static void mouseBtnCB(GLFWwindow* w, int button, int action, int mods){
+
+void handle_scroll(double yoff_scaled) {
+    fov -= (float)yoff_scaled;
+    if (fov < 5.0f)  fov = 5.0f;
+    if (fov > 90.0f) fov = 90.0f;
+}
+
+void handle_button(int button, int action) {
     if(button==GLFW_MOUSE_BUTTON_LEFT){
         leftDown = (action==GLFW_PRESS);
     }
 }
 
+static void cursorPosCB(GLFWwindow* win, double xpos, double ypos){
+    if(touchMode) return;
+    if(!leftDown){ lastX=xpos; lastY=ypos; return; }
+    double dx = xpos - lastX; double dy = ypos - lastY;
+    lastX = xpos; lastY = ypos;
+    handle_drag(dx, dy);
+}
+
+static void mouseBtnCB(GLFWwindow* w, int button, int action, int mods){
+    if(touchMode) return;
+    handle_button(button, action); // Call handler
+    // Update lastX/Y on new click to prevent jump
+    if(action == GLFW_PRESS && button == GLFW_MOUSE_BUTTON_LEFT) { 
+        glfwGetCursorPos(w, &lastX, &lastY);
+    }
+}
+
 static void scrollCB(GLFWwindow* w, double xoff, double yoff){
-    fov -= (float)yoff * 1.5f;
-    if (fov < 5.0f)  fov = 5.0f;
-    if (fov > 90.0f) fov = 90.0f;
+    handle_scroll(yoff * 1.5f); // Call handler with scaling
 }
 
 // ---------- compile shaders ----------
@@ -396,6 +412,11 @@ void main_loop() {
     auto now = Clock::now();
     std::chrono::duration<double> elapsed = now - tPrev;
     tPrev = now;
+
+    const double MAX_ELAPSED_SECONDS = 1.0 / 30.0; // Cap at 30fps
+    double elapsed_seconds = std::min(elapsed.count(), MAX_ELAPSED_SECONDS);
+    if(elapsed_seconds <= 0) elapsed_seconds = 1.0 / 60.0;
+
     double dt = elapsed.count() * TIME_SCALE;
     if(dt <= 0) dt = 1.0/60.0 * TIME_SCALE;
 
@@ -463,22 +484,47 @@ void main_loop() {
 
 // ---------- resize callback ----------
 static void framebuffer_cb(GLFWwindow* win, int w, int h){
-    // Update stored sizes and viewport immediately
     gWidth = w;
     gHeight = h;
     glViewport(0, 0, gWidth, gHeight);
 }
 
-// Expose a function to JS so the index.html can set canvas size in the Module
+// Exposed to JS
 extern "C" {
     EMSCRIPTEN_KEEPALIVE
     void emscripten_set_canvas_size(int w, int h) {
         gWidth = w;
         gHeight = h;
-        // Also update immediate GL viewport if context exists
+
         if (gWindow) {
             glViewport(0, 0, gWidth, gHeight);
         }
+    }
+
+    EMSCRIPTEN_KEEPALIVE
+    void emscripten_touch_start(double x, double y) {
+        touchMode = true;
+        touchLastX = x;
+        touchLastY = y;
+    }
+
+    EMSCRIPTEN_KEEPALIVE
+    void emscripten_touch_end() {
+        touchMode = false;
+    }
+
+    EMSCRIPTEN_KEEPALIVE
+    void emscripten_touch_move(double x, double y) {
+        double dx = x - touchLastX;
+        double dy = y - touchLastY;
+        touchLastX = x;
+        touchLastY = y;
+        handle_drag(dx, dy);
+    }
+
+    EMSCRIPTEN_KEEPALIVE
+    void emscripten_touch_zoom(double delta_zoom) {
+        handle_scroll(delta_zoom); 
     }
 }
 

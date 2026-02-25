@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8" />
   <title>SolarSim WASM</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <style>
     html,
     body {
@@ -31,12 +31,13 @@
 
 <body>
   <canvas id="canvas"></canvas>
-  <div id="overlay">SolarSim - Drag to orbit, scroll to zoom</div>
+  <div id="overlay">HelioSim - Drag to orbit, scroll/pinch to zoom</div>
+  <!-- TOUCH_EMULATOR -->
   <script>
     const canvas = document.getElementById('canvas');
+    const dpr = window.devicePixelRatio || 1;
 
     function resizeCanvas() {
-      const dpr = window.devicePixelRatio || 1;
       const width = window.innerWidth;
       const height = window.innerHeight;
 
@@ -47,19 +48,109 @@
         canvas.style.width = width + "px";
         canvas.style.height = height + "px";
 
-        if (window.Module && Module._emscripten_set_canvas_size) { // handles resizes AFTER the app has started
+        // Call the C++ function to update its internal size
+        if (window.Module && Module._emscripten_set_canvas_size) {
           Module._emscripten_set_canvas_size(canvas.width, canvas.height);
         }
       }
     }
     resizeCanvas();
-
     window.addEventListener('resize', resizeCanvas);
+
+    // --- Touch ---
+    let touchState = 0; // 0 = none, 1 = drag, 2 = zoom
+    let lastPinchDist = 0;
+    const zoomSensitivity = 0.2;
+    let touchActive = false;
+
+    function getTouchPos(touch) {
+      return { x: touch.pageX * dpr, y: touch.pageY * dpr };
+    }
+
+    function getPinchDist(touches) {
+      return Math.hypot(
+        touches[0].pageX - touches[1].pageX,
+        touches[0].pageY - touches[1].pageY
+      );
+    }
+
+    canvas.addEventListener("touchstart", (e) => {
+      touchActive = true;
+      e.preventDefault();
+      if (!window.Module) return;
+
+      const touches = e.touches;
+
+      if (touches.length === 1) {
+        console.log("touchstart 1 finger")
+        // Start 1-finger drag
+        touchState = 1;
+        const pos = getTouchPos(touches[0]);
+        Module._emscripten_touch_start(pos.x, pos.y);
+      } else if (touches.length === 2) {
+        console.log("touchstart 2 fingers")
+        // Start 2-finger pinch (zoom only, no drag)
+        touchState = 2;
+        lastPinchDist = getPinchDist(touches);
+      }
+    }, { passive: false });
+
+    canvas.addEventListener("touchend", (e) => {
+      e.preventDefault();
+      if (!window.Module) return;
+
+      const touches = e.touches;
+      lastPinchDist = 0; // Always reset pinch
+
+      if (touches.length === 0) {
+        // All fingers lifted
+        touchState = 0;
+        Module._emscripten_touch_end();
+        touchActive = false;
+      } else if (touches.length === 1) {
+        // Was 2, now 1 (transition to drag)
+        touchState = 1;
+        // Reset drag anchor to the remaining finger
+        const pos = getTouchPos(touches[0]);
+        Module._emscripten_touch_start(pos.x, pos.y);
+      }
+    }, { passive: false });
+
+    canvas.addEventListener("touchmove", (e) => {
+      e.preventDefault();
+      if (!window.Module) return;
+
+      const touches = e.touches;
+
+      if (touchState === 1 && touches.length === 1 && Module._emscripten_touch_move) {
+        console.log("touchmove 1 fingers")
+        // --- 1-finger drag (orbit) ---
+        const pos = getTouchPos(touches[0]);
+        Module._emscripten_touch_move(pos.x, pos.y);
+
+      } else if (touchState === 2 && touches.length === 2 && Module._emscripten_touch_zoom) {
+        // --- 2-finger pinch (zoom) ---
+        const newDist = getPinchDist(touches);
+        const deltaDist = newDist - lastPinchDist;
+        console.log(deltaDist);
+
+        Module._emscripten_touch_zoom(deltaDist * zoomSensitivity);
+
+        lastPinchDist = newDist; // Update for next frame
+      }
+    }, { passive: false });
+
+    // --- Emscripten Module Setup ---
     var Module = {
       canvas: canvas,
+      onRuntimeInitialized: () => {
+        // Call resize again *after* runtime is ready
+        resizeCanvas();
+      }
     };
 
-    window.setTimeout(resizeCanvas, 500); //TODO: temp fix
+    // This is just a backup resize, not strictly necessary with the new logic
+    window.setTimeout(resizeCanvas, 500);
   </script>
   <script src="heliosim.js"></script>
 </body>
