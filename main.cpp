@@ -324,6 +324,100 @@ void main() {
 }
 )glsl";
 
+// --- Nebula background shader ---
+const char *nebulaVertexShaderSrc = R"glsl(#version 300 es
+precision highp float;
+layout(location = 0) in vec2 aPos;
+
+uniform mat4 uInvProj;
+uniform mat4 uInvView;
+
+out vec3 vViewDir;
+
+void main() {
+    // Draw quad behind everything else
+    gl_Position = vec4(aPos, 0.9999, 1.0);
+    
+    // Reconstruct world-space view direction
+    vec4 clipPos = vec4(aPos, -1.0, 1.0);
+    vec4 viewPos = uInvProj * clipPos;
+    viewPos = vec4(viewPos.xy, -1.0, 0.0);
+    vViewDir = (uInvView * viewPos).xyz;
+}
+)glsl";
+
+const char *nebulaFragmentShaderSrc = R"glsl(#version 300 es
+precision highp float;
+in vec3 vViewDir;
+out vec4 FragColor;
+
+// Simplex-like hash noise
+vec3 hash3(vec3 p) {
+    p = vec3(dot(p, vec3(127.1, 311.7, 74.7)),
+             dot(p, vec3(269.5, 183.3, 246.1)),
+             dot(p, vec3(113.5, 271.9, 124.6)));
+    return -1.0 + 2.0 * fract(sin(p) * 43758.5453123);
+}
+
+float noise3d(vec3 p) {
+    vec3 i = floor(p); vec3 f = fract(p);
+    vec3 u = f * f * (3.0 - 2.0 * f);
+    return mix(mix(mix(dot(hash3(i + vec3(0,0,0)), f - vec3(0,0,0)),
+                       dot(hash3(i + vec3(1,0,0)), f - vec3(1,0,0)), u.x),
+                   mix(dot(hash3(i + vec3(0,1,0)), f - vec3(0,1,0)),
+                       dot(hash3(i + vec3(1,1,0)), f - vec3(1,1,0)), u.x), u.y),
+               mix(mix(dot(hash3(i + vec3(0,0,1)), f - vec3(0,0,1)),
+                       dot(hash3(i + vec3(1,0,1)), f - vec3(1,0,1)), u.x),
+                   mix(dot(hash3(i + vec3(0,1,1)), f - vec3(0,1,1)),
+                       dot(hash3(i + vec3(1,1,1)), f - vec3(1,1,1)), u.x), u.y), u.z);
+}
+
+float fbm(vec3 p) {
+    float v = 0.0; float a = 0.5;
+    for (int i = 0; i < 5; i++) {
+        v += a * noise3d(p);
+        p *= 2.0; a *= 0.5;
+    }
+    return v;
+}
+
+void main() {
+    vec3 dir = normalize(vViewDir);
+
+    // Galactic tilt (60 degrees around X) to match the starfield
+    float galTilt = 1.04719755; 
+    float cosT = cos(-galTilt);
+    float sinT = sin(-galTilt);
+    vec3 galDir = vec3(dir.x, dir.y * cosT - dir.z * sinT, dir.y * sinT + dir.z * cosT);
+
+    // Distance from the galactic plane
+    float planeDist = abs(galDir.y);
+
+    // Procedural noise structure
+    float n1 = fbm(galDir * 3.0) * 0.5 + 0.5;
+    float n2 = fbm(galDir * 8.0 - vec3(4.0)) * 0.5 + 0.5;
+    float noiseMask = n1 * n2;
+
+    // Concentrate along the band with some wispy edges
+    float band = exp(-planeDist * planeDist * 12.0);
+    float wisps = exp(-planeDist * planeDist * 4.0) * (fbm(galDir * 15.0) * 0.5 + 0.5);
+    
+    float nebulaShape = band * noiseMask + wisps * 0.15;
+
+    // Nebula Color Palette
+    vec3 bgSpace = vec3(0.01, 0.01, 0.02);
+    vec3 deepRed = vec3(0.25, 0.02, 0.06);
+    vec3 brightRed = vec3(0.7, 0.15, 0.1);
+    vec3 coreOrange = vec3(0.9, 0.4, 0.15);
+
+    vec3 color = mix(bgSpace, deepRed, smoothstep(0.0, 0.25, nebulaShape));
+    color = mix(color, brightRed, smoothstep(0.25, 0.6, nebulaShape));
+    color = mix(color, coreOrange, smoothstep(0.6, 1.0, nebulaShape));
+
+    FragColor = vec4(color, 1.0);
+}
+)glsl";
+
 // ---------- GL helpers ----------
 static void checkCompile(GLuint shader) {
     GLint ok; glGetShaderiv(shader, GL_COMPILE_STATUS, &ok);
@@ -571,6 +665,10 @@ float gTime = 0.0f;
 // ---------- Black Hole shader program ----------
 GLuint gBhProg = 0;
 GLint locBhM, locBhV, locBhP, locBhColor, locBhViewPos, locBhTime;
+
+// ---------- Nebula program ----------
+GLuint gNebulaProg = 0;
+GLint locNebulaInvProj, locNebulaInvView;
 
 // ---------- Explosions ----------
 struct Explosion {
@@ -1105,6 +1203,22 @@ void main_loop() {
     glm::mat4 view = glm::lookAt(camPos, camTarget, glm::vec3(0,1,0));
     glm::mat4 proj = glm::perspective(glm::radians(fov), (float)width / (float)height, 0.1f, 1000.0f);
 
+    glUseProgram(gNebulaProg);
+    
+    // Nebula
+    glm::mat4 skyView = glm::mat4(glm::mat3(view)); 
+    glm::mat4 invProj = glm::inverse(proj);
+    glm::mat4 invView = glm::inverse(skyView);
+    
+    glUniformMatrix4fv(locNebulaInvProj, 1, GL_FALSE, glm::value_ptr(invProj));
+    glUniformMatrix4fv(locNebulaInvView, 1, GL_FALSE, glm::value_ptr(invView));
+    
+    glDepthMask(GL_FALSE);
+    glBindVertexArray(glowVAO); // glowVAO is a screen-filling quad from -1 to 1
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    glBindVertexArray(0);
+    glDepthMask(GL_TRUE);
+
     // Draw starfield background first
     drawStars(view, proj);
 
@@ -1396,6 +1510,11 @@ int main() {
     locBhColor = glGetUniformLocation(gBhProg, "uColor");
     locBhViewPos = glGetUniformLocation(gBhProg, "uViewPos");
     locBhTime = glGetUniformLocation(gBhProg, "uTime"); 
+
+    // Nebula shader
+    gNebulaProg = makeProgram(nebulaVertexShaderSrc, nebulaFragmentShaderSrc);
+    locNebulaInvProj = glGetUniformLocation(gNebulaProg, "uInvProj");
+    locNebulaInvView = glGetUniformLocation(gNebulaProg, "uInvView");
 
     // Build starfield and glow quad
     buildStarfield();

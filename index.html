@@ -507,7 +507,7 @@
       { id: 'ice-giant',   name: 'Ice Giant',   cat: 'Planet',      mass: '1.024e26',  radius: '2.46e7',   type: '0', speed: '0', color: '#4488cc' },
       { id: 'moon',        name: 'Moon',        cat: 'Small',       mass: '7.35e22',   radius: '1.737e6',  type: '0', speed: '0', color: '#aaaaaa' },
       { id: 'asteroid',    name: 'Asteroid',    cat: 'Small',       mass: '1e15',      radius: '5e3',      type: '0', speed: '0', color: '#887766' },
-      { id: 'black-hole',  name: 'Black Hole',  cat: 'Singularity', mass: '5e31',      radius: '1e7',      type: '2', speed: '0', color: '#6600cc' }
+      { id: 'black-hole',  name: 'Black Hole',  cat: 'Singularity', mass: '5e31',      radius: '1e9',      type: '2', speed: '0.1', color: '#6600cc' }
     ];
 
     const addBtn = document.getElementById('add-btn');
@@ -555,6 +555,7 @@
     }
 
     buildPresetGrid();
+    selectPreset(presets[0]);
 
     detailToggle.addEventListener('click', () => {
       const open = detailFields.classList.toggle('open');
