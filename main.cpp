@@ -399,16 +399,16 @@ void main() {
     float noiseMask = n1 * n2;
 
     // Concentrate along the band with some wispy edges
-    float band = exp(-planeDist * planeDist * 12.0);
-    float wisps = exp(-planeDist * planeDist * 4.0) * (fbm(galDir * 15.0) * 0.5 + 0.5);
+    float band = exp(-planeDist * planeDist * 6.0);
+    float wisps = exp(-planeDist * planeDist * 2.0) * (fbm(galDir * 20.0) * 0.5 + 0.5);
     
-    float nebulaShape = band * noiseMask + wisps * 0.15;
+    float nebulaShape = (band * noiseMask + wisps * 0.3) * 0.9;
 
     // Nebula Color Palette
     vec3 bgSpace = vec3(0.01, 0.01, 0.02);
-    vec3 deepRed = vec3(0.25, 0.02, 0.06);
-    vec3 brightRed = vec3(0.7, 0.15, 0.1);
-    vec3 coreOrange = vec3(0.9, 0.4, 0.15);
+    vec3 deepRed = vec3(0.2, 0.04, 0.08);
+    vec3 brightRed = vec3(0.45, 0.13, 0.09);    
+    vec3 coreOrange = vec3(0.65, 0.36, 0.18);
 
     vec3 color = mix(bgSpace, deepRed, smoothstep(0.0, 0.25, nebulaShape));
     color = mix(color, brightRed, smoothstep(0.25, 0.6, nebulaShape));

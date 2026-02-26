@@ -120,6 +120,26 @@
       padding-bottom: 4px;
     }
 
+    /* Slider layout */
+    .slider-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      margin-top: 3px;
+      margin-bottom: 8px;
+    }
+    .param-slider {
+      flex: 3; /* Takes up 3/4 of the space */
+      margin: 0;
+      padding: 0 !important;
+      border: none !important;
+      background: transparent !important;
+    }
+    .param-input {
+      flex: 1; /* Takes up 1/4 of the space */
+      min-width: 0; /* Prevents flex blowout */
+    }
+
     /* Preset grid */
     .preset-grid {
       display: grid;
@@ -312,9 +332,15 @@
     <div id="detail-fields">
       <div class="section-label">Physical Properties</div>
       <label>Mass (kg)</label>
-      <input type="text" id="f-mass" value="5.972e24" placeholder="e.g. 5.972e24">
+      <div class="slider-row">
+        <input type="range" id="f-mass-slider" class="param-slider" min="14" max="32" step="0.01" value="24.77">
+        <input type="text" id="f-mass" class="param-input" value="5.972e24">
+      </div>
       <label>Radius (m)</label>
-      <input type="text" id="f-radius" value="6.371e6" placeholder="e.g. 6.371e6">
+      <div class="slider-row">
+        <input type="range" id="f-radius-slider" class="param-slider" min="3" max="10.5" step="0.01" value="6.8">
+        <input type="text" id="f-radius" class="param-input" value="6.371e6">
+      </div>
       <label>Type</label>
       <select id="f-type">
         <option value="0">Planet</option>
@@ -544,7 +570,9 @@
     function selectPreset(p) {
       selectedPreset = p;
       document.getElementById('f-mass').value = p.mass;
+      document.getElementById('f-mass-slider').value = Math.log10(parseFloat(p.mass));
       document.getElementById('f-radius').value = p.radius;
+      document.getElementById('f-radius-slider').value = Math.log10(parseFloat(p.radius));
       document.getElementById('f-type').value = p.type;
       document.getElementById('f-speed').value = p.speed;
       colorInput.value = p.color;
@@ -579,6 +607,43 @@
     }
     colorInput.addEventListener('input', updateColorPreview);
     updateColorPreview();
+
+    const massInput = document.getElementById('f-mass');
+    const massSlider = document.getElementById('f-mass-slider');
+    const radiusInput = document.getElementById('f-radius');
+    const radiusSlider = document.getElementById('f-radius-slider');
+
+    // Mass sync
+    massSlider.addEventListener('input', (e) => {
+      massInput.value = Math.pow(10, parseFloat(e.target.value)).toExponential(3);
+    });
+    massInput.addEventListener('input', (e) => {
+      const val = parseFloat(e.target.value);
+      if (!isNaN(val) && val > 0) massSlider.value = Math.log10(val);
+    });
+
+    // Radius sync
+    radiusSlider.addEventListener('input', (e) => {
+      radiusInput.value = Math.pow(10, parseFloat(e.target.value)).toExponential(3);
+    });
+    radiusInput.addEventListener('input', (e) => {
+      const val = parseFloat(e.target.value);
+      if (!isNaN(val) && val > 0) radiusSlider.value = Math.log10(val);
+    });
+
+    // When the slider moves, update the text input exponentially
+    radiusSlider.addEventListener('input', (e) => {
+      const val = Math.pow(10, parseFloat(e.target.value));
+      radiusInput.value = val.toExponential(3);
+    });
+
+    // When the text is manually typed, update the slider's position logarithmically
+    radiusInput.addEventListener('input', (e) => {
+      const val = parseFloat(e.target.value);
+      if (!isNaN(val) && val > 0) {
+        radiusSlider.value = Math.log10(val);
+      }
+    });
 
     function hexToRgb(hex) {
       const r = parseInt(hex.slice(1, 3), 16) / 255;
