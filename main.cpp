@@ -879,6 +879,20 @@ void handle_drag(double dx, double dy) {
     if(pitch>89.0f) pitch=89.0f; if(pitch<-89.0f) pitch=-89.0f;
 }
 
+void handle_pan(double dx, double dy) {
+    // Scale pan speed with zoom distance so it feels consistent
+    float panSpeed = 0.015f * (distanceCam / 20.0f);
+    float yawRad = glm::radians(yaw);
+    
+    // Calculate forward vector flattened to XZ plane
+    glm::vec3 forward_xz(-cos(yawRad), 0.0f, -sin(yawRad));
+    // Calculate right vector
+    glm::vec3 right = glm::normalize(glm::cross(forward_xz, glm::vec3(0.0f, 1.0f, 0.0f)));
+
+    // Apply movement to target
+    camTarget += right * (float)(-dx * panSpeed) + forward_xz * (float)(dy * panSpeed);
+}
+
 void handle_scroll(double yoff_scaled) {
     fov -= (float)yoff_scaled;
     if (fov < 5.0f)  fov = 5.0f;
@@ -896,7 +910,16 @@ static void cursorPosCB(GLFWwindow* win, double xpos, double ypos){
     if(!leftDown){ lastX=xpos; lastY=ypos; return; }
     double dx = xpos - lastX; double dy = ypos - lastY;
     lastX = xpos; lastY = ypos;
-    handle_drag(dx, dy);
+    
+    // Check if either Shift key is pressed
+    bool shiftPressed = (glfwGetKey(win, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS || 
+                         glfwGetKey(win, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS);
+    
+    if (shiftPressed) {
+        handle_pan(dx, dy);
+    } else {
+        handle_drag(dx, dy);
+    }
 }
 
 static void mouseBtnCB(GLFWwindow* w, int button, int action, int mods){
@@ -1201,6 +1224,11 @@ extern "C" {
     EMSCRIPTEN_KEEPALIVE
     void emscripten_touch_end() {
         touchMode = false;
+    }
+
+    EMSCRIPTEN_KEEPALIVE
+    void emscripten_touch_pan(double dx, double dy) {
+        handle_pan(dx, dy);
     }
 
     EMSCRIPTEN_KEEPALIVE

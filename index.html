@@ -294,7 +294,7 @@
 
 <body>
   <canvas id="canvas"></canvas>
-  <div id="overlay">HelioSim - Drag to orbit, scroll/pinch to zoom</div>
+  <div id="overlay">HelioSim - Drag to orbit, scroll/pinch to zoom, shift/pan to move</div>
   <button id="add-btn">+ Add Body</button>
   <div id="placement-banner">Click anywhere to place the body<small>Press Escape or right-click to cancel</small></div>
   <div id="speed-controls">
@@ -364,8 +364,9 @@
     window.addEventListener('resize', resizeCanvas);
 
     // --- Touch ---
-    let touchState = 0; // 0 = none, 1 = drag, 2 = zoom
+  let touchState = 0; // 0 = none, 1 = drag, 2 = zoom/pan
     let lastPinchDist = 0;
+    let lastPinchCenter = { x: 0, y: 0 };
     const zoomSensitivity = 0.2;
     let touchActive = false;
 
@@ -396,10 +397,14 @@
         touchState = 1;
         const pos = getTouchPos(touches[0]);
         Module._emscripten_touch_start(pos.x, pos.y);
-      } else if (touches.length === 2) {
-        // Start 2-finger pinch (zoom only, no drag)
+        } else if (touches.length === 2) {
+        // Start 2-finger pinch (zoom) and tracking center (pan)
         touchState = 2;
         lastPinchDist = getPinchDist(touches);
+        lastPinchCenter = {
+          x: (touches[0].pageX + touches[1].pageX) / 2 * dpr,
+          y: (touches[0].pageY + touches[1].pageY) / 2 * dpr
+        };
       }
     }, { passive: false });
 
@@ -452,13 +457,22 @@
         Module._emscripten_touch_move(pos.x, pos.y);
 
       } else if (touchState === 2 && touches.length === 2 && Module._emscripten_touch_zoom) {
-        // --- 2-finger pinch (zoom) ---
-        const newDist = getPinchDist(touches);
-        const deltaDist = newDist - lastPinchDist;
-
-        Module._emscripten_touch_zoom(deltaDist * zoomSensitivity);
-
-        lastPinchDist = newDist; // Update for next frame
+        // --- 2-finger pinch (zoom) & pan ---
+        if (Module._emscripten_touch_zoom) {
+          const newDist = getPinchDist(touches);
+          const deltaDist = newDist - lastPinchDist;
+          Module._emscripten_touch_zoom(deltaDist * zoomSensitivity);
+          lastPinchDist = newDist;
+        }
+        
+        if (Module._emscripten_touch_pan) {
+          const newCenterX = (touches[0].pageX + touches[1].pageX) / 2 * dpr;
+          const newCenterY = (touches[0].pageY + touches[1].pageY) / 2 * dpr;
+          const dx = newCenterX - lastPinchCenter.x;
+          const dy = newCenterY - lastPinchCenter.y;
+          Module._emscripten_touch_pan(dx, dy);
+          lastPinchCenter = { x: newCenterX, y: newCenterY };
+        }
       }
     }, { passive: false });
 
