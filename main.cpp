@@ -30,7 +30,7 @@ const int SPHERE_LONG = 32;
 const int SUN_SPHERE_LAT = 48;
 const int SUN_SPHERE_LONG = 48;
 
-float fov = 80.0f;
+float fov = 52.0f;
 
 // ---------- Embedded shaders (GLSL ES 3.00) ----------
 
@@ -966,7 +966,7 @@ double lastX=SCR_W_DEFAULT/2.0, lastY=SCR_H_DEFAULT/2.0;
 bool leftDown=false;
 bool touchMode=false;
 double touchLastX=0, touchLastY=0; // separate tracking for touch input
-float yaw=-90.0f, pitch=30.0f;
+float yaw=-58.0f, pitch=36.0f;
 float distanceCam = 20.0f;
 glm::vec3 camTarget = {0.0f,0.0f,0.0f};
 
@@ -1031,6 +1031,19 @@ static void mouseBtnCB(GLFWwindow* w, int button, int action, int mods){
 
 static void scrollCB(GLFWwindow* w, double xoff, double yoff){
     handle_scroll(yoff * 1.5f); // Call handler with scaling
+}
+
+// debug: for good inital setup
+static void keyCB(GLFWwindow* window, int key, int scancode, int action, int mods) {
+    if (key == GLFW_KEY_C && action == GLFW_PRESS) {
+        std::cout << "\n// --- Current Camera State ---" << std::endl;
+        std::cout << "yaw = " << yaw << "f;" << std::endl;
+        std::cout << "pitch = " << pitch << "f;" << std::endl;
+        std::cout << "distanceCam = " << distanceCam << "f;" << std::endl;
+        std::cout << "camTarget = {" << camTarget.x << "f, " 
+                  << camTarget.y << "f, " << camTarget.z << "f};" << std::endl;
+        std::cout << "fov = " << fov << "f;\n" << std::endl;
+    }
 }
 
 // ---------- compile shaders ----------
@@ -1525,6 +1538,7 @@ int main() {
     glfwSetMouseButtonCallback(gWindow, mouseBtnCB);
     glfwSetScrollCallback(gWindow, scrollCB);
     glfwSetFramebufferSizeCallback(gWindow, framebuffer_cb);
+    // glfwSetKeyCallback(gWindow, keyCB); only for debug
 
     // Setup physics
     setupSolarSystem();

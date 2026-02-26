@@ -1,17 +1,18 @@
 # HelioSim
 
-A real-time, WebAssembly-powered N-body gravitational system simulator built with C++, OpenGL ES 3.0, GLFW, and Emscripten running directly in your browser. Still work in progress.
+A real-time, WebAssembly-powered N-body gravitational system simulator built with C++, OpenGL ES 3.0, GLFW, and Emscripten running directly in your browser. Its features include predicitve orbit trails, collision, time controls and body spawning.
 
 [Live demo](https://koprolin.com/heliosim/)
 
-![Screenshot](docs/screenshot.png)
+![Demo GIF](docs/demo.gif)
 
 ## Controls
-| Action            | Description                  |
-| :---------------- | :--------------------------- |
-| **Left Drag**     | Orbit camera                 |
-| **Scroll**        | Zoom in/out                  |
-| **Resize window** | Viewport adjusts dynamically |
+| Action                       | Description                   |
+| :--------------------------- | :---------------------------- |
+| **Left Drag**                | Orbit camera                  |
+| **Scroll/Pinch**             | Zoom in/out                   |
+| **Shift/Two-Finger Drag**    | Pan camera target             |
+| **Resize window**            | Viewport adjusts dynamically  |
 
 ## Build Instructions
 
