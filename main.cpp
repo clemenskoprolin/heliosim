@@ -156,6 +156,61 @@ void main() {
 }
 )glsl";
 
+// --- Black Hole shader (Event Horizon + Photon Ring) ---
+const char *bhVertexShaderSrc = R"glsl(#version 300 es
+precision highp float;
+layout(location = 0) in vec3 aPos;
+layout(location = 1) in vec3 aNormal;
+
+uniform mat4 uModel;
+uniform mat4 uView;
+uniform mat4 uProj;
+
+out vec3 vNormal;
+out vec3 vWorldPos;
+out vec3 vObjPos;
+
+void main() {
+    vObjPos = aPos;
+    vNormal = mat3(transpose(inverse(uModel))) * aNormal;
+    vec4 worldPos = uModel * vec4(aPos, 1.0);
+    vWorldPos = worldPos.xyz;
+    gl_Position = uProj * uView * worldPos;
+}
+)glsl";
+
+const char *bhFragmentShaderSrc = R"glsl(#version 300 es
+precision highp float;
+in vec3 vNormal;
+in vec3 vWorldPos;
+in vec3 vObjPos;
+out vec4 FragColor;
+
+uniform vec3 uColor;
+uniform vec3 uViewPos;
+uniform float uTime;
+
+void main() {
+    vec3 N = normalize(vNormal);
+    vec3 V = normalize(uViewPos - vWorldPos);
+    float fresnel = max(dot(N, V), 0.0);
+    
+    // The Event Horizon: anything facing the camera (fresnel > 0.2) becomes pitch black
+    float eventHorizon = smoothstep(0.3, 0.15, fresnel); 
+    
+    // The Photon Ring: intense glow right at the glancing edge
+    float photonRing = pow(1.0 - fresnel, 6.0) * 4.0;
+    
+    // Add a swirling plasma effect to the photon ring
+    float swirl = sin(uTime * -4.0 + vObjPos.y * 12.0 + vObjPos.x * 8.0) * 0.5 + 0.5;
+    
+    vec3 baseColor = uColor * 2.0; // Boost the base color
+    vec3 ringColor = baseColor * eventHorizon * (0.5 + swirl * 0.5) + baseColor * photonRing;
+    
+    FragColor = vec4(ringColor, 1.0);
+}
+)glsl";
+
 // --- Sun glow billboard shader ---
 const char *glowVertexShaderSrc = R"glsl(#version 300 es
 precision highp float;
@@ -490,13 +545,14 @@ void buildGlowQuad() {
     glBindVertexArray(0);
 }
 
-void drawSunGlow(const glm::mat4 &view, const glm::mat4 &proj, const glm::vec3 &sunPos, float size) {
+// Added the color parameter here so we can reuse this for explosions and the black hole
+void drawSunGlow(const glm::mat4 &view, const glm::mat4 &proj, const glm::vec3 &sunPos, float size, const glm::vec3 &color) {
     glUseProgram(gGlowProg);
     glUniformMatrix4fv(locGlowView, 1, GL_FALSE, glm::value_ptr(view));
     glUniformMatrix4fv(locGlowProj, 1, GL_FALSE, glm::value_ptr(proj));
     glUniform3fv(locGlowCenter, 1, glm::value_ptr(sunPos));
     glUniform1f(locGlowSize, size);
-    glUniform3f(locGlowColor, 1.0f, 0.85f, 0.4f);
+    glUniform3fv(locGlowColor, 1, glm::value_ptr(color));
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE); // additive glow
     glDepthMask(GL_FALSE);
@@ -512,12 +568,26 @@ GLuint gSunProg = 0;
 GLint locSunM, locSunV, locSunP, locSunTime;
 float gTime = 0.0f;
 
+// ---------- Black Hole shader program ----------
+GLuint gBhProg = 0;
+GLint locBhM, locBhV, locBhP, locBhColor, locBhViewPos, locBhTime;
+
+// ---------- Explosions ----------
+struct Explosion {
+    glm::dvec3 pos;
+    float age;
+    float maxAge;
+    glm::vec3 color;
+};
+std::vector<Explosion> explosions;
+
 // ---------- Physics bodies ----------
 const int ORBIT_TRAIL_MAX = 2048;  // max trail points per body
 const int ORBIT_TRAIL_RECORD_INTERVAL = 3; // record every N frames
-const int FUTURE_TRAIL_POINTS = 512; // number of predicted future positions
-const int FUTURE_PREDICT_INTERVAL = 60; // re-predict every N frames
-const double FUTURE_STEP_DT = TIME_SCALE * 2.0; // simulate ~2 days per step (~2.8 yr total)
+const int FUTURE_TRAIL_POINTS = 1024; // number of predicted future positions
+const int FUTURE_PREDICT_INTERVAL = 20; // re-predict every N frames
+const double FUTURE_RECORD_DT = TIME_SCALE; // Record 1 point per simulated day
+const int FUTURE_SUBSTEPS = 4;// Sub-step the math for high accuracy
 
 struct Body {
     std::string name;
@@ -526,7 +596,7 @@ struct Body {
     glm::dvec3 vel;
     float radius;
     glm::vec3 color;
-    bool isStar = false;
+    int bodyType = 0; // 0=Planet, 1=Star, 2=BlackHole
 
     // orbit trail - stored as interleaved (x, y, z, alpha) per vertex
     std::vector<float> trailData; // interleaved: x,y,z,alpha
@@ -660,7 +730,7 @@ void setupSolarSystem() {
     };
 
     push_body("Sun", 1.9885e30, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 6.9634e8f, {1.0f, 0.9f, 0.6f});
-    bodies.back().isStar = true;
+    bodies.back().bodyType = 1;
 
     struct PlanetDef { const char* name; double distAU; double speed; double angleDeg; double mass; float radius; glm::vec3 color; };
     std::vector<PlanetDef> planets = {
@@ -749,6 +819,38 @@ void integrateVerlet(double dt) {
     computeAccels(a_new);
     for(size_t i=0;i<n;i++){
         bodies[i].vel += 0.5 * (a_old[i] + a_new[i]) * dt;
+    }
+
+    // Detect Collisions & Merge
+    for (size_t i = 0; i < bodies.size(); ) {
+        bool collided = false;
+        for (size_t j = i + 1; j < bodies.size(); j++) {
+            glm::dvec3 r = bodies[i].pos - bodies[j].pos;
+            double dist2 = glm::dot(r, r);
+
+            // Use actual physical radii instead of the inflated visual scale
+            double radSum = (double)bodies[i].radius + (double)bodies[j].radius;
+
+            if (dist2 < radSum * radSum) {
+                int bigger = (bodies[i].mass >= bodies[j].mass) ? i : j;
+                int smaller = (bodies[i].mass >= bodies[j].mass) ? j : i;
+
+                // Conservation of momentum
+                double m1 = bodies[bigger].mass;
+                double m2 = bodies[smaller].mass;
+                bodies[bigger].vel = (bodies[bigger].vel * m1 + bodies[smaller].vel * m2) / (m1 + m2);
+                bodies[bigger].mass += m2;
+
+                // Trigger Explosion at the point of the smaller body
+                explosions.push_back({bodies[smaller].pos, 0.0f, 1.5f, bodies[smaller].color});
+
+                bodies.erase(bodies.begin() + smaller);
+                collided = true;
+                futureFrameCounter = FUTURE_PREDICT_INTERVAL;
+                break; // Handle one collision per sub-step for simplicity
+            }
+        }
+        if (!collided) i++;
     }
 }
 
@@ -857,34 +959,33 @@ void predictFutureTrails() {
         pos[i] = bodies[i].pos;
         vel[i] = bodies[i].vel;
         mass[i] = bodies[i].mass;
-    }
-
-    // Clear future trails
-    for (auto &b : bodies) {
-        b.futureTrail.clear();
-    }
-
-    // Add current position as first point
-    for (size_t i = 0; i < n; i++) {
+        
+        // Clear and init the first point
+        bodies[i].futureTrail.clear();
         bodies[i].futureTrail.push_back(glm::vec3((float)pos[i].x, (float)pos[i].y, (float)pos[i].z));
     }
 
+    // The delta time used for the actual math calculation
+    double fdt = FUTURE_RECORD_DT / FUTURE_SUBSTEPS;
+
     // Simulate forward
-    double fdt = FUTURE_STEP_DT;
     for (int step = 0; step < FUTURE_TRAIL_POINTS; step++) {
-        // Verlet integration on temp data
-        std::vector<glm::dvec3> a_old;
-        computeAccelsTemp(pos, mass, a_old);
-        for (size_t i = 0; i < n; i++) {
-            pos[i] += vel[i] * fdt + 0.5 * a_old[i] * fdt * fdt;
-        }
-        std::vector<glm::dvec3> a_new;
-        computeAccelsTemp(pos, mass, a_new);
-        for (size_t i = 0; i < n; i++) {
-            vel[i] += 0.5 * (a_old[i] + a_new[i]) * fdt;
+        
+        // Calculate physics multiple times per recorded point to prevent divergence
+        for(int sub = 0; sub < FUTURE_SUBSTEPS; sub++) {
+            std::vector<glm::dvec3> a_old;
+            computeAccelsTemp(pos, mass, a_old);
+            for (size_t i = 0; i < n; i++) {
+                pos[i] += vel[i] * fdt + 0.5 * a_old[i] * fdt * fdt;
+            }
+            std::vector<glm::dvec3> a_new;
+            computeAccelsTemp(pos, mass, a_new);
+            for (size_t i = 0; i < n; i++) {
+                vel[i] += 0.5 * (a_old[i] + a_new[i]) * fdt;
+            }
         }
 
-        // Record
+        // Record the position only AFTER the sub-steps to save memory/GPU bandwidth
         for (size_t i = 0; i < n; i++) {
             bodies[i].futureTrail.push_back(glm::vec3((float)pos[i].x, (float)pos[i].y, (float)pos[i].z));
         }
@@ -999,7 +1100,7 @@ void main_loop() {
 
         glDisable(GL_BLEND); // solid bodies
 
-        if (b.isStar) {
+        if (b.bodyType == 1) {
             // Draw sun with special shader
             glUseProgram(gSunProg);
             glm::mat4 model(1.0f);
@@ -1014,7 +1115,29 @@ void main_loop() {
 
             // Draw glow billboard
             glm::vec3 sp((float)b.pos.x, (float)b.pos.y, (float)b.pos.z);
-            drawSunGlow(view, proj, sp, visualScale * 5.0f);
+            drawSunGlow(view, proj, sp, visualScale * 5.0f, glm::vec3(1.0f, 0.85f, 0.4f));
+
+        } else if (b.bodyType == 2) {
+            // Draw Black Hole Event Horizon + Photon Ring
+            glUseProgram(gBhProg);
+            glm::mat4 model(1.0f);
+            model = glm::translate(model, glm::vec3((float)b.pos.x, (float)b.pos.y, (float)b.pos.z));
+            float visualScale = std::max(0.05f, (float)(b.radius * 1.0f));
+            model = glm::scale(model, glm::vec3(visualScale));
+            
+            glUniformMatrix4fv(locBhM, 1, GL_FALSE, glm::value_ptr(model));
+            glUniformMatrix4fv(locBhV, 1, GL_FALSE, glm::value_ptr(view));
+            glUniformMatrix4fv(locBhP, 1, GL_FALSE, glm::value_ptr(proj));
+            glUniform3fv(locBhColor, 1, glm::value_ptr(b.color));
+            glUniform3fv(locBhViewPos, 1, glm::value_ptr(camPos));
+            glUniform1f(locBhTime, gTime);
+            
+            sphereMesh.draw();
+
+            // Accretion disk glow (scaled slightly larger than the sphere)
+            glm::vec3 sp((float)b.pos.x, (float)b.pos.y, (float)b.pos.z);
+            drawSunGlow(view, proj, sp, visualScale * 6.5f, b.color);
+
         } else {
             glUseProgram(gProg);
             glm::mat4 model(1.0f);
@@ -1027,6 +1150,21 @@ void main_loop() {
         }
 
         glEnable(GL_BLEND); // re-enable for next body's trail
+    }
+
+    // Render Explosions
+    for (auto it = explosions.begin(); it != explosions.end(); ) {
+        it->age += (float)elapsed_seconds;
+        if (it->age >= it->maxAge) {
+            it = explosions.erase(it);
+        } else {
+            float t = it->age / it->maxAge;
+            float size = (1.0f - pow(1.0f - t, 3.0f)) * 3.0f + 0.1f;
+            float alphaMod = 1.0f - t;
+            glm::vec3 c = it->color * alphaMod * 2.5f; 
+            drawSunGlow(view, proj, glm::vec3(it->pos.x, it->pos.y, it->pos.z), size, c);
+            ++it;
+        }
     }
 
     glDisable(GL_BLEND);
@@ -1084,15 +1222,15 @@ extern "C" {
     EMSCRIPTEN_KEEPALIVE
     void add_body(double mass, double px, double py, double pz,
                   double vx, double vy, double vz,
-                  float radius, float cr, float cg, float cb, int is_star) {
+                  float radius, float cr, float cg, float cb, int body_type) {
         Body b;
-        b.name = is_star ? "Star" : "Planet";
+        b.name = body_type == 1 ? "Star" : (body_type == 2 ? "Black Hole" : "Planet");
         b.mass = mass / MASS_SCALE;
         b.pos = glm::dvec3(px, py, pz) / DISTANCE_SCALE;
         b.vel = glm::dvec3(vx, vy, vz) / DISTANCE_SCALE;
         b.radius = (float)(radius / DISTANCE_SCALE);
         b.color = glm::vec3(cr, cg, cb);
-        b.isStar = (is_star != 0);
+        b.bodyType = body_type;
         bodies.push_back(b);
 
         // Trigger future trail re-prediction
@@ -1221,6 +1359,15 @@ int main() {
     locGlowCenter = glGetUniformLocation(gGlowProg, "uCenter");
     locGlowSize = glGetUniformLocation(gGlowProg, "uSize");
     locGlowColor = glGetUniformLocation(gGlowProg, "uColor");
+
+    // Black Hole shader
+    gBhProg = makeProgram(bhVertexShaderSrc, bhFragmentShaderSrc);
+    locBhM = glGetUniformLocation(gBhProg, "uModel");
+    locBhV = glGetUniformLocation(gBhProg, "uView");
+    locBhP = glGetUniformLocation(gBhProg, "uProj");
+    locBhColor = glGetUniformLocation(gBhProg, "uColor");
+    locBhViewPos = glGetUniformLocation(gBhProg, "uViewPos");
+    locBhTime = glGetUniformLocation(gBhProg, "uTime"); 
 
     // Build starfield and glow quad
     buildStarfield();
