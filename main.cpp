@@ -15,6 +15,8 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
+#include "barnes_hut.hpp"
+
 // ---------- Settings ----------
 const int SCR_W_DEFAULT = 1280;
 const int SCR_H_DEFAULT = 720;
@@ -23,6 +25,9 @@ const double G_CONST = 6.67430e-11;
 const double DISTANCE_SCALE = 1e10;
 const double MASS_SCALE = 1e20;
 const double TIME_SCALE = 60*60*24; // 1 sec -> 1 day
+const double GRAVITY_SOFTENING_SQUARED = 1e-6;
+const double BARNES_HUT_THETA = 0.5;
+const std::size_t BARNES_HUT_LEAF_CAPACITY = 8;
 double timeScaleMultiplier = 1.0;
 
 const int SPHERE_LAT = 32;
@@ -884,26 +889,25 @@ void setupSolarSystem() {
     }
 }
 
-void computeAccels(std::vector<glm::dvec3>& acc) {
-    size_t n=bodies.size();
-    acc.assign(n, glm::dvec3(0.0));
-
-    // This is the correction factor: M / D^3
+void computeAccelsForState(const std::vector<glm::dvec3>& positions,
+                           const std::vector<double>& masses,
+                           std::vector<glm::dvec3>& acc) {
     const double G_SCALING_FACTOR = MASS_SCALE / (DISTANCE_SCALE * DISTANCE_SCALE * DISTANCE_SCALE);
+    heliosim::BarnesHutTree tree(positions, masses, BARNES_HUT_LEAF_CAPACITY);
+    tree.computeAccelerations(acc, G_CONST * G_SCALING_FACTOR,
+                              BARNES_HUT_THETA, GRAVITY_SOFTENING_SQUARED);
+}
 
-    for(size_t i=0;i<n;i++){
-        for(size_t j=0;j<n;j++){
-            if(i==j) continue;
-            glm::dvec3 r = bodies[j].pos - bodies[i].pos;
-            double dist2 = glm::dot(r,r) + 1e-6;
-            double dist = sqrt(dist2);
-            double f = (G_CONST * bodies[j].mass) / dist2;
-
-            f *= G_SCALING_FACTOR;
-
-            acc[i] += (r/dist) * f;
-        }
+void computeAccels(std::vector<glm::dvec3>& acc) {
+    std::vector<glm::dvec3> positions;
+    std::vector<double> masses;
+    positions.reserve(bodies.size());
+    masses.reserve(bodies.size());
+    for (const Body& body : bodies) {
+        positions.push_back(body.pos);
+        masses.push_back(body.mass);
     }
+    computeAccelsForState(positions, masses, acc);
 }
 
 void integrateVerlet(double dt) {
@@ -1066,22 +1070,9 @@ using Clock = std::chrono::high_resolution_clock;
 auto tPrev = Clock::now();
 
 // Helper: compute accelerations on a temporary body set (for future prediction)
-void computeAccelsTemp(std::vector<glm::dvec3>& positions, std::vector<double>& masses,
+void computeAccelsTemp(const std::vector<glm::dvec3>& positions, const std::vector<double>& masses,
                        std::vector<glm::dvec3>& acc) {
-    size_t n = positions.size();
-    acc.assign(n, glm::dvec3(0.0));
-    const double G_SCALING_FACTOR = MASS_SCALE / (DISTANCE_SCALE * DISTANCE_SCALE * DISTANCE_SCALE);
-    for(size_t i=0;i<n;i++){
-        for(size_t j=0;j<n;j++){
-            if(i==j) continue;
-            glm::dvec3 r = positions[j] - positions[i];
-            double dist2 = glm::dot(r,r) + 1e-6;
-            double dist = sqrt(dist2);
-            double f = (G_CONST * masses[j]) / dist2;
-            f *= G_SCALING_FACTOR;
-            acc[i] += (r/dist) * f;
-        }
-    }
+    computeAccelsForState(positions, masses, acc);
 }
 
 void predictFutureTrails() {

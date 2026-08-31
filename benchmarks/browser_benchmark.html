@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HelioSim Barnes-Hut Browser Benchmark</title>
+  <style>
+    :root { color-scheme: dark; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    body { margin: 2rem; background: #0b1020; color: #e5ecff; }
+    h1 { font-family: system-ui, sans-serif; }
+    table { border-collapse: collapse; margin-top: 1.5rem; width: min(100%, 1100px); }
+    th, td { border-bottom: 1px solid #334066; padding: .55rem .8rem; text-align: right; }
+    th:first-child, td:first-child { text-align: left; }
+    .running { color: #ffcf66; }
+    .done { color: #74e39a; }
+    .failed { color: #ff7b87; white-space: pre-wrap; }
+  </style>
+</head>
+<body data-benchmark-state="loading">
+  <h1>HelioSim Barnes-Hut WebAssembly Benchmark</h1>
+  <p id="environment"></p>
+  <p id="status" class="running">Loading WebAssembly…</p>
+  <table>
+    <thead>
+      <tr>
+        <th>Bodies</th>
+        <th>Median solve</th>
+        <th>Solves/s</th>
+        <th>6-solve frame ceiling</th>
+        <th>Tree nodes</th>
+        <th>Evaluated interactions</th>
+      </tr>
+    </thead>
+    <tbody id="results"></tbody>
+  </table>
+  <script>
+    const counts = [
+      1000, 1500, 1750, 2000, 5000, 6000, 10000, 20000, 50000, 100000
+    ];
+    const repetitionsFor = count => count <= 10000 ? 7 : count <= 50000 ? 5 : 3;
+    const nextPaint = () => new Promise(resolve => requestAnimationFrame(resolve));
+    window.benchmarkResults = [];
+
+    document.getElementById('environment').textContent =
+      `${navigator.userAgent} · ${navigator.hardwareConcurrency || 'unknown'} logical cores`;
+
+    var Module = {
+      printErr: message => console.error(message),
+      onRuntimeInitialized: async () => {
+        const status = document.getElementById('status');
+        const tbody = document.getElementById('results');
+        try {
+          for (const bodies of counts) {
+            status.textContent = `Benchmarking ${bodies.toLocaleString()} bodies…`;
+            await nextPaint();
+            const medianMs = Module.ccall(
+              'benchmarkBarnesHutMilliseconds', 'number',
+              ['number', 'number'], [bodies, repetitionsFor(bodies)]);
+            const minimumMs = Module.ccall(
+              'benchmarkBarnesHutMinimumMilliseconds', 'number', [], []);
+            const nodes = Module.ccall(
+              'benchmarkBarnesHutNodeCount', 'number', [], []);
+            const directInteractions = Module.ccall(
+              'benchmarkBarnesHutDirectInteractions', 'number', [], []);
+            const approximatedNodes = Module.ccall(
+              'benchmarkBarnesHutApproximatedNodes', 'number', [], []);
+            const result = {
+              bodies, medianMs, minimumMs, nodes,
+              interactions: directInteractions + approximatedNodes,
+              solvesPerSecond: 1000 / medianMs,
+              sixSolveFrameCeilingHz: 1000 / (6 * medianMs)
+            };
+            window.benchmarkResults.push(result);
+            const row = document.createElement('tr');
+            row.innerHTML = `
+              <td>${bodies.toLocaleString()}</td>
+              <td>${medianMs.toFixed(2)} ms</td>
+              <td>${result.solvesPerSecond.toFixed(1)}</td>
+              <td>${result.sixSolveFrameCeilingHz.toFixed(1)} FPS</td>
+              <td>${nodes.toLocaleString()}</td>
+              <td>${result.interactions.toLocaleString()}</td>`;
+            tbody.appendChild(row);
+          }
+          document.body.dataset.benchmarkState = 'done';
+          status.className = 'done';
+          status.textContent = 'Benchmark complete';
+        } catch (error) {
+          document.body.dataset.benchmarkState = 'failed';
+          status.className = 'failed';
+          status.textContent = `Benchmark failed: ${error.stack || error}`;
+        }
+      }
+    };
+  </script>
+  <script src="barnes_hut_benchmark.js"></script>
+</body>
+</html>
